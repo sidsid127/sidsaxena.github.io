@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ShopScout — a pocket guide for shoppers</title>
+  <meta name="description" content="Search any brand, mall, or city to find store locations, floor directories, and directions in one place." />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%A7%AD%3C/text%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="assets/css/style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand-logo" href="#">🧭 ShopScout</a>
+    <nav>
+      <a href="#how-it-works">How it works</a>
+    </nav>
+  </header>
+
+  <section class="hero">
+    <div class="wrap">
+      <h1>Your pocket guide for shoppers</h1>
+      <p class="sub">
+        Search a brand like Apple or Superdry, a mall like MyZeil, or a city — get store locations,
+        floor directories, and directions instantly.
+      </p>
+
+      <form class="search-card" id="search-form" autocomplete="off">
+        <div class="search-row">
+          <input
+            type="text"
+            id="search-input"
+            placeholder="Search a brand, mall, or city…"
+            aria-label="Search a brand, mall, or city"
+          />
+          <button class="btn" type="submit">Search</button>
+        </div>
+        <div class="suggestions" id="suggestions" hidden></div>
+      </form>
+
+      <div class="locate-row">
+        <button class="btn ghost" id="locate-btn" type="button">📍 Use my location</button>
+        <span id="locate-status"></span>
+      </div>
+
+      <div class="chips">
+        <button class="chip" type="button" data-query="MyZeil">MyZeil, Frankfurt</button>
+        <button class="chip" type="button" data-query="The Dubai Mall">The Dubai Mall</button>
+        <button class="chip" type="button" data-query="Westfield London">Westfield London</button>
+        <button class="chip" type="button" data-query="Apple">Apple</button>
+        <button class="chip" type="button" data-query="Superdry">Superdry</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="results" id="results" hidden></section>
+
+  <section class="how-it-works" id="how-it-works">
+    <div class="wrap">
+      <h2>What ShopScout does</h2>
+      <div class="feature-grid">
+        <div class="card">
+          <span class="icon">🏷️</span>
+          <h3>Search any brand</h3>
+          <p class="muted">Find every store a brand runs across supported malls and cities, with hours and unit numbers.</p>
+        </div>
+        <div class="card">
+          <span class="icon">🏬</span>
+          <h3>Mall floor directories</h3>
+          <p class="muted">Say the mall name — like "Zeil" — and get a floor-by-floor directory of what's where.</p>
+        </div>
+        <div class="card">
+          <span class="icon">📍</span>
+          <h3>Location aware</h3>
+          <p class="muted">Share your location to see the nearest malls and stores, sorted by distance.</p>
+        </div>
+        <div class="card">
+          <span class="icon">🗺️</span>
+          <h3>Google Maps built in</h3>
+          <p class="muted">Every mall and store links straight to a map and turn-by-turn directions.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <p>Prototype data set — see README for how to wire in live store &amp; mall data.</p>
+  </footer>
+
+  <script src="assets/js/data.js"></script>
+  <script src="assets/js/app.js"></script>
+</body>
+</html>
