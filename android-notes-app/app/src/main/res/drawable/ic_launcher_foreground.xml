@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Notepad silhouette with a folded top-right corner. -->
+    <path
+        android:fillColor="#1C1C1E"
+        android:pathData="M32,26 L70,26 L78,34 L78,84 L32,84 Z" />
+    <path
+        android:fillColor="#FFD60A"
+        android:pathData="M70,26 L78,34 L70,34 Z" />
+    <!-- Three text lines, cut out in the background color. -->
+    <path
+        android:fillColor="#FFD60A"
+        android:pathData="M40,44 L70,44 L70,48 L40,48 Z" />
+    <path
+        android:fillColor="#FFD60A"
+        android:pathData="M40,56 L70,56 L70,60 L40,60 Z" />
+    <path
+        android:fillColor="#FFD60A"
+        android:pathData="M40,68 L62,68 L62,72 L40,72 Z" />
+</vector>
