@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+   Local-device backup only (Android's own backup, not a cloud service the app talks to).
+   Everything the app stores -- the notes database and the lock preference -- is included.
+-->
+<full-backup-content>
+    <include domain="database" path="notes.db" />
+    <include domain="sharedpref" path="notes_settings.xml" />
+</full-backup-content>
