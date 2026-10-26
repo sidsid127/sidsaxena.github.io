@@ -1,4 +1,4 @@
-# Daybook (Android)
+# Doable (Android)
 
 An offline to-do app. All data stays on the phone in SQLite: no account, no internet permission,
 and Android cloud backup is switched off.
@@ -17,7 +17,7 @@ Tap a task to edit its text, category, priority and due date. Long-press a task 
 
 ## Install on your phone
 
-1. Get `release/Daybook.apk` onto the phone (download it on the phone, or copy it over USB).
+1. Get `release/Doable.apk` onto the phone (download it on the phone, or copy it over USB).
 2. Open it and allow installs from that app (browser / Files) if Android asks.
 3. Tap **Install** (or **Update**). If Play Protect warns about an unknown developer: **More details → Install anyway**.
 
@@ -30,7 +30,7 @@ Built with plain command-line tools (no Gradle/Android Studio needed):
 
 ```sh
 sudo apt install openjdk-17-jdk android-sdk-platform-23 aapt dalvik-exchange zipalign apksigner
-./build.sh        # -> release/Daybook.apk
+./build.sh        # -> release/Doable.apk
 ```
 
 The first build downloads the Android 14 framework jar from Maven Central (compile-time only, for the
@@ -42,3 +42,6 @@ update an installed copy; don't use it for a Play Store release.
 - `AndroidManifest.xml`, `res/` — manifest, layouts, colours, icons (rendered from `../brand/logo.svg`)
 - `src/com/sidsaxena/daybook/Db.java` — SQLite storage (tasks, categories, activity log)
 - `src/com/sidsaxena/daybook/MainActivity.java` — the whole UI, including the app lock
+
+The app was first called Daybook; its internal package id (`com.sidsaxena.daybook`) is kept so that
+updates install over existing copies without losing data.

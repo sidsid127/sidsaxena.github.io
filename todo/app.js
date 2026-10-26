@@ -1,7 +1,7 @@
 'use strict';
-/* Daybook for iPhone — an offline web app. All data lives in this browser's localStorage. */
+/* Doable for iPhone — an offline web app. All data lives in this browser's localStorage. */
 
-const APP_NAME = 'Daybook';
+const APP_NAME = 'Doable';
 const STORE_KEY = 'daybook.v1';
 const DONE_VISIBLE_MS = 12 * 60 * 60 * 1000;
 const PRIORITY = ['None', 'Low', 'Medium', 'High'];

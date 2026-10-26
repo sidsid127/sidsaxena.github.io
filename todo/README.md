@@ -1,4 +1,4 @@
-# Daybook for iPhone (offline web app)
+# Doable for iPhone (offline web app)
 
 The same to-do app as the Android version, built as an installable web app because native iOS apps
 can only be built and signed on a Mac with Xcode.

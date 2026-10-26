@@ -1,6 +1,6 @@
 {
-  "name": "Daybook",
-  "short_name": "Daybook",
+  "name": "Doable",
+  "short_name": "Doable",
   "description": "Offline to-do list with categories, priorities and due dates.",
   "start_url": "./",
   "scope": "./",

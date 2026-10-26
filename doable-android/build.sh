@@ -13,7 +13,7 @@ if [ ! -f "$API34_JAR" ]; then
     curl -sSfL -o "$API34_JAR" https://repo1.maven.org/maven2/org/robolectric/android-all/14-robolectric-10818077/android-all-14-robolectric-10818077.jar
 fi
 OUT=build
-APK=release/Daybook.apk
+APK=release/Doable.apk
 KEYSTORE=debug.keystore
 
 rm -rf "$OUT" && mkdir -p "$OUT/gen" "$OUT/classes" release
