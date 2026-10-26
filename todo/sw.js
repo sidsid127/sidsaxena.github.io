@@ -1,6 +1,7 @@
 // Caches the whole app on first visit so it then runs fully offline.
-const CACHE = 'doable-v3';
-const FILES = ['./', 'index.html', 'app.css', 'app.js', 'manifest.webmanifest',
+const CACHE = 'doable-v4';
+const FILES = ['./', 'index.html', 'app.css', 'core.js', 'tasks.js', 'notes.js', 'grocery.js', 'vault.js', 'log.js',
+  'start.js', 'manifest.webmanifest',
   'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/maskable-512.png'];
 
 self.addEventListener('install', (e) => {

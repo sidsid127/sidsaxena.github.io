@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="primary">#3F2CB8</color>
+    <color name="primary_dark">#1A1342</color>
+    <color name="primary_text">#A99CF7</color>
+    <color name="accent">#FF6F7C</color>
+    <color name="bg">#12111C</color>
+    <color name="card">#1E1C2E</color>
+    <color name="text">#EEEDF7</color>
+    <color name="muted">#9C9AB5</color>
+    <color name="overdue">#FF6B6F</color>
+    <color name="add_due">#C9777A</color>
+    <color name="divider">#2F2C47</color>
+    <color name="selected">#2C2850</color>
+    <color name="prio_none">#55536E</color>
+    <color name="prio_low">#5C9DFF</color>
+    <color name="prio_med">#F5B455</color>
+    <color name="prio_high">#FF6B6F</color>
+</resources>

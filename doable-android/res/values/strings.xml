@@ -9,12 +9,18 @@
     <string name="set_due">Set due date</string>
     <string name="add_due">+ Add due date</string>
     <string name="all">All</string>
-    <string name="menu_show_done">Show all completed tasks</string>
-    <string name="menu_log">Activity log</string>
-    <string name="menu_lock">Fingerprint lock</string>
-    <string name="menu_share">Export / share all</string>
-    <string name="menu_clear_done">Delete completed tasks</string>
     <string name="locked">Locked</string>
     <string name="unlock">Unlock</string>
     <string name="priority">Priority</string>
+    <string name="module_tasks">To-do</string>
+    <string name="module_notes">Notes</string>
+    <string name="module_grocery">Groceries</string>
+    <string name="module_vault">Passwords</string>
+    <string name="module_log">Activity log</string>
+    <string name="search">Search</string>
+    <string name="new_note">New note</string>
+    <string name="empty_notes">No notes yet.\nTap + to write one.</string>
+    <string name="hint_item">Add an item…</string>
+    <string name="vault_locked">Your passwords are encrypted on this phone.</string>
+    <string name="empty_vault">No passwords saved yet.\nTap + to add one.</string>
 </resources>

@@ -14,10 +14,16 @@ file). Tasks are stored only in this phone's browser storage; nothing is ever se
 
 ## Features
 
-Categories and sub-categories (chips; press and hold to edit), priority flags (tap to cycle, hold to pick),
-due dates with a light-red "+ Add due date", completed tasks hidden after 12 hours (⋯ → Show all completed),
-PIN + Face ID lock, optional activity log, backup to a .json file and restore, share as text.
-Dark mode follows the phone.
+Same modules as the Android app, switched from the ☰ side menu: **To-do** (categories, priority flags,
+due dates, grouped by priority and category, completed tasks hidden after 12 hours), **Notes** (iPhone
+Notes style), **Groceries** (grouped by shop, "Buy again" history), **Passwords** and the **Activity log**.
+The ⋯ menu has each module's options plus theme (same as phone / light / dark), PIN + Face ID app lock,
+and backup to / restore from a .json file.
 
-Face ID uses a passkey created on the device purely as a local check. Because iOS stores passkeys in
+**Passwords** are encrypted with AES-256-GCM. The key is unlocked by your master password (PBKDF2,
+600,000 rounds) or, on iOS 18+, by Face ID through the passkey PRF extension, which releases a secret only
+after Face ID succeeds. Without one of the two, the stored data is unreadable. Backups contain the
+passwords still encrypted with your master password.
+
+The app lock's Face ID uses a passkey created on the device purely as a local check. Because iOS stores passkeys in
 iCloud Keychain, the passkey itself (not your tasks) may sync to your other Apple devices. The PIN always works too.

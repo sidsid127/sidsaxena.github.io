@@ -1,19 +1,27 @@
 # Doable (Android)
 
-An offline to-do app. All data stays on the phone in SQLite: no account, no internet permission,
-and Android cloud backup is switched off.
+An offline organiser: to-do list, notes, groceries and a password safe. All data stays on the phone:
+no account, no internet permission, and Android cloud backup is switched off.
 
-- **Categories with sub-categories**: chips at the top (All · Private · Work …). Pick Work to see a second
-  row with its sub-categories (e.g. Accenture, Customer A/B/C). New tasks go into the selected category.
-  Tap **+ Category** / **+ Sub-category** to add; press and hold a chip to rename or delete it.
-- **Priority flag** on the right of every task: tap to cycle None → Low → Medium → High, press and hold
-  to pick directly. Higher priority sorts first, then the soonest due date.
-- **Due dates**: shown under each task; tasks without one show a light-red **+ Add due date** shortcut.
-- **Completed tasks** stay struck through for 12 hours, then hide. ⋮ → *Show all completed tasks* shows them all.
-- **Fingerprint lock** (⋮ menu): asks for your fingerprint (or phone PIN) whenever the app is opened.
-- ⋮ also has the optional **Activity log**, **Export / share all** as text, and **Delete completed tasks**.
+Open the ☰ side menu to switch between modules. The ⋮ menu has each module's options plus the
+fingerprint app lock and the theme (same as phone / light / dark).
 
-Tap a task to edit its text, category, priority and due date. Long-press a task to delete it.
+- **To-do**: categories with sub-categories (chips at the top; press and hold a chip to rename/delete),
+  a priority flag on every task (tap to cycle, hold to pick), due dates with a light-red **+ Add due date**
+  shortcut. When the list spans several categories it is grouped: high-priority tasks first, then one
+  section per category / sub-category. Completed tasks stay struck through for 12 hours, then hide
+  (⋮ → *Show all completed tasks*).
+- **Notes**: like the iPhone Notes app — searchable list, pinned notes on top, full-screen editor where the
+  first line is the title. Notes save automatically; use the keyboard's microphone to dictate.
+- **Groceries**: pick a shop chip (Rewe, Lidl, Aldi, or add your own) and add items; the list is grouped by
+  shop. Tap an item to tick it off. Everything you've ever added appears under **Buy again** — one tap
+  puts it back on the list with its shop. ⋮ → *Clear bought items* empties the cart.
+- **Passwords**: logins encrypted with AES-256-GCM. The encryption key is protected by the Android
+  Keystore (secure hardware) and, with *Require fingerprint* on, can only be used right after your
+  fingerprint, face or screen lock. The screen blocks screenshots and locks itself when you leave it.
+  Note: if you remove the phone's screen lock, Android deletes that key and the saved passwords can't
+  be recovered — use ⋮ → *Export passwords* first if you ever plan to do that.
+- **Activity log**: timestamped notes of what you did.
 
 ## Install on your phone
 

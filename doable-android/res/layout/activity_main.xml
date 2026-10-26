@@ -3,126 +3,60 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
-<LinearLayout
-    android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:orientation="vertical">
-
-    <LinearLayout
-        android:id="@+id/chip_bar"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:background="@color/card"
-        android:elevation="2dp"
-        android:orientation="vertical"
-        android:paddingBottom="6dp"
-        android:paddingTop="6dp">
-
-        <HorizontalScrollView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:scrollbars="none">
-            <LinearLayout
-                android:id="@+id/chips_top"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:paddingLeft="8dp"
-                android:paddingRight="8dp" />
-        </HorizontalScrollView>
-
-        <HorizontalScrollView
-            android:id="@+id/sub_scroll"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:scrollbars="none">
-            <LinearLayout
-                android:id="@+id/chips_sub"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:paddingLeft="8dp"
-                android:paddingRight="8dp" />
-        </HorizontalScrollView>
-    </LinearLayout>
-
-    <TextView
-        android:id="@+id/summary"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:paddingLeft="16dp"
-        android:paddingRight="16dp"
-        android:paddingTop="10dp"
-        android:paddingBottom="4dp"
-        android:textColor="@color/muted"
-        android:textSize="13sp" />
-
     <FrameLayout
+        android:id="@+id/content"
         android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1">
+        android:layout_height="match_parent" />
 
-        <ListView
-            android:id="@+id/list"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:clipToPadding="false"
-            android:divider="@null"
-            android:dividerHeight="0dp"
-            android:paddingBottom="8dp"
-            android:paddingLeft="12dp"
-            android:paddingRight="12dp" />
-
-        <TextView
-            android:id="@+id/empty"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:gravity="center"
-            android:padding="32dp"
-            android:textColor="@color/muted"
-            android:textSize="16sp" />
-    </FrameLayout>
+    <View
+        android:id="@+id/scrim"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="#88000000"
+        android:clickable="true"
+        android:elevation="15dp"
+        android:visibility="gone" />
 
     <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
+        android:id="@+id/drawer"
+        android:layout_width="288dp"
+        android:layout_height="match_parent"
         android:background="@color/card"
-        android:elevation="8dp"
-        android:gravity="center_vertical"
-        android:orientation="horizontal"
-        android:padding="8dp">
+        android:clickable="true"
+        android:elevation="16dp"
+        android:orientation="vertical"
+        android:visibility="gone">
 
-        <ImageButton
-            android:id="@+id/due_btn"
-            android:layout_width="44dp"
-            android:layout_height="44dp"
-            android:background="?android:attr/selectableItemBackgroundBorderless"
-            android:contentDescription="@string/set_due"
-            android:src="@drawable/ic_event" />
-
-        <EditText
-            android:id="@+id/input"
-            android:layout_width="0dp"
+        <LinearLayout
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginLeft="4dp"
-            android:layout_marginRight="8dp"
-            android:layout_weight="1"
-            android:background="@drawable/input_bg"
-            android:imeOptions="actionDone"
-            android:inputType="textCapSentences"
-            android:maxLines="4"
-            android:minHeight="44dp"
-            android:paddingLeft="16dp"
-            android:paddingRight="16dp"
-            android:textSize="16sp" />
+            android:background="@drawable/lock_bg"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:padding="20dp">
 
-        <Button
-            android:id="@+id/add_btn"
-            android:layout_width="wrap_content"
+            <ImageView
+                android:layout_width="52dp"
+                android:layout_height="52dp"
+                android:src="@drawable/ic_launcher" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginLeft="14dp"
+                android:text="@string/app_name"
+                android:textColor="#FFFFFFFF"
+                android:textSize="24sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/drawer_items"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="@string/add" />
+            android:orientation="vertical"
+            android:paddingTop="8dp" />
     </LinearLayout>
-</LinearLayout>
 
     <LinearLayout
         android:id="@+id/lock_view"
@@ -130,7 +64,7 @@
         android:layout_height="match_parent"
         android:background="@drawable/lock_bg"
         android:clickable="true"
-        android:elevation="16dp"
+        android:elevation="20dp"
         android:gravity="center"
         android:orientation="vertical"
         android:visibility="gone">

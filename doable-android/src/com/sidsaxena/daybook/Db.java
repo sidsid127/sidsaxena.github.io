@@ -36,6 +36,33 @@ public class Db extends SQLiteOpenHelper {
         public int color;
     }
 
+    public static class Note {
+        public long id;
+        public String body;
+        public boolean pinned;
+        public long modified;
+    }
+
+    public static class Shop {
+        public long id;
+        public String name;
+        public int color;
+    }
+
+    public static class Item {
+        public long id;
+        public String name;
+        public long shop;     // 0 = any shop
+        public boolean done;
+        public long created;
+    }
+
+    /** A previously bought grocery item, offered under "Buy again". */
+    public static class Usual {
+        public String name;
+        public long shop;
+    }
+
     public static class Entry {
         public long id;
         public String text;
@@ -43,7 +70,7 @@ public class Db extends SQLiteOpenHelper {
     }
 
     public Db(Context context) {
-        super(context, "daybook.db", null, 2);
+        super(context, "daybook.db", null, 3);
     }
 
     @Override
@@ -55,6 +82,7 @@ public class Db extends SQLiteOpenHelper {
         db.execSQL("CREATE TABLE log (_id INTEGER PRIMARY KEY AUTOINCREMENT, text TEXT NOT NULL,"
                 + " ts INTEGER NOT NULL)");
         createCategories(db);
+        createV3(db);
     }
 
     @Override
@@ -64,6 +92,28 @@ public class Db extends SQLiteOpenHelper {
             db.execSQL("ALTER TABLE tasks ADD COLUMN priority INTEGER NOT NULL DEFAULT 0");
             createCategories(db);
         }
+        if (oldVersion < 3) createV3(db);
+    }
+
+    /** Notes and groceries, added in version 3. */
+    private static void createV3(SQLiteDatabase db) {
+        db.execSQL("CREATE TABLE notes (_id INTEGER PRIMARY KEY AUTOINCREMENT, body TEXT NOT NULL,"
+                + " pinned INTEGER NOT NULL DEFAULT 0, created INTEGER NOT NULL, modified INTEGER NOT NULL)");
+        db.execSQL("CREATE TABLE shops (_id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, color INTEGER NOT NULL)");
+        db.execSQL("CREATE TABLE grocery (_id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL,"
+                + " shop INTEGER NOT NULL DEFAULT 0, done INTEGER NOT NULL DEFAULT 0, created INTEGER NOT NULL)");
+        db.execSQL("CREATE TABLE grocery_history (name TEXT PRIMARY KEY COLLATE NOCASE, shop INTEGER NOT NULL,"
+                + " uses INTEGER NOT NULL, last_used INTEGER NOT NULL)");
+        insertShop(db, "Rewe", 0xFFCC071E);
+        insertShop(db, "Lidl", 0xFF0050AA);
+        insertShop(db, "Aldi", 0xFFF28C00);
+    }
+
+    private static long insertShop(SQLiteDatabase db, String name, int color) {
+        ContentValues v = new ContentValues();
+        v.put("name", name);
+        v.put("color", color);
+        return db.insert("shops", null, v);
     }
 
     private static void createCategories(SQLiteDatabase db) {
@@ -213,6 +263,183 @@ public class Db extends SQLiteOpenHelper {
         } finally {
             db.endTransaction();
         }
+    }
+
+    // ---- notes ----
+
+    /** Pinned notes first, then most recently edited. */
+    public List<Note> notes() {
+        List<Note> out = new ArrayList<Note>();
+        Cursor c = getReadableDatabase().rawQuery(
+                "SELECT _id, body, pinned, modified FROM notes ORDER BY pinned DESC, modified DESC", null);
+        try {
+            while (c.moveToNext()) {
+                Note n = new Note();
+                n.id = c.getLong(0);
+                n.body = c.getString(1);
+                n.pinned = c.getInt(2) != 0;
+                n.modified = c.getLong(3);
+                out.add(n);
+            }
+        } finally {
+            c.close();
+        }
+        return out;
+    }
+
+    public long addNote(String body) {
+        long now = System.currentTimeMillis();
+        ContentValues v = new ContentValues();
+        v.put("body", body);
+        v.put("created", now);
+        v.put("modified", now);
+        return getWritableDatabase().insert("notes", null, v);
+    }
+
+    public void updateNote(long id, String body) {
+        ContentValues v = new ContentValues();
+        v.put("body", body);
+        v.put("modified", System.currentTimeMillis());
+        getWritableDatabase().update("notes", v, "_id = ?", new String[]{String.valueOf(id)});
+    }
+
+    public void setPinned(long id, boolean pinned) {
+        ContentValues v = new ContentValues();
+        v.put("pinned", pinned ? 1 : 0);
+        getWritableDatabase().update("notes", v, "_id = ?", new String[]{String.valueOf(id)});
+    }
+
+    public void deleteNote(long id) {
+        getWritableDatabase().delete("notes", "_id = ?", new String[]{String.valueOf(id)});
+    }
+
+    // ---- groceries ----
+
+    public List<Shop> shops() {
+        List<Shop> out = new ArrayList<Shop>();
+        Cursor c = getReadableDatabase().rawQuery("SELECT _id, name, color FROM shops ORDER BY _id", null);
+        try {
+            while (c.moveToNext()) {
+                Shop k = new Shop();
+                k.id = c.getLong(0);
+                k.name = c.getString(1);
+                k.color = c.getInt(2);
+                out.add(k);
+            }
+        } finally {
+            c.close();
+        }
+        return out;
+    }
+
+    public long addShop(String name) {
+        long count = android.database.DatabaseUtils.queryNumEntries(getReadableDatabase(), "shops");
+        return insertShop(getWritableDatabase(), name, PALETTE[(int) ((count + 2) % PALETTE.length)]);
+    }
+
+    public void renameShop(long id, String name) {
+        ContentValues v = new ContentValues();
+        v.put("name", name);
+        getWritableDatabase().update("shops", v, "_id = ?", new String[]{String.valueOf(id)});
+    }
+
+    /** Deletes a shop; its items (and history) fall back to "any shop". */
+    public void deleteShop(long id) {
+        SQLiteDatabase db = getWritableDatabase();
+        String[] arg = {String.valueOf(id)};
+        ContentValues v = new ContentValues();
+        v.put("shop", 0);
+        db.update("grocery", v, "shop = ?", arg);
+        db.update("grocery_history", v, "shop = ?", arg);
+        db.delete("shops", "_id = ?", arg);
+    }
+
+    public List<Item> items() {
+        List<Item> out = new ArrayList<Item>();
+        Cursor c = getReadableDatabase().rawQuery(
+                "SELECT _id, name, shop, done, created FROM grocery ORDER BY done, created", null);
+        try {
+            while (c.moveToNext()) {
+                Item it = new Item();
+                it.id = c.getLong(0);
+                it.name = c.getString(1);
+                it.shop = c.getLong(2);
+                it.done = c.getInt(3) != 0;
+                it.created = c.getLong(4);
+                out.add(it);
+            }
+        } finally {
+            c.close();
+        }
+        return out;
+    }
+
+    /** Adds an item to the list and remembers it (and its shop) for "Buy again". */
+    public void addItem(String name, long shop) {
+        long now = System.currentTimeMillis();
+        SQLiteDatabase db = getWritableDatabase();
+        ContentValues v = new ContentValues();
+        v.put("name", name);
+        v.put("shop", shop);
+        v.put("created", now);
+        db.insert("grocery", null, v);
+        // (No UPSERT: SQLite on older Android versions doesn't support it.)
+        db.execSQL("UPDATE grocery_history SET shop = ?, uses = uses + 1, last_used = ? WHERE name = ?",
+                new Object[]{shop, now, name});
+        if (android.database.DatabaseUtils.longForQuery(db, "SELECT changes()", null) == 0) {
+            ContentValues h = new ContentValues();
+            h.put("name", name);
+            h.put("shop", shop);
+            h.put("uses", 1);
+            h.put("last_used", now);
+            db.insert("grocery_history", null, h);
+        }
+    }
+
+    public void updateItem(long id, String name, long shop) {
+        ContentValues v = new ContentValues();
+        v.put("name", name);
+        v.put("shop", shop);
+        getWritableDatabase().update("grocery", v, "_id = ?", new String[]{String.valueOf(id)});
+        ContentValues h = new ContentValues();
+        h.put("shop", shop);
+        getWritableDatabase().update("grocery_history", h, "name = ?", new String[]{name});
+    }
+
+    public void setItemDone(long id, boolean done) {
+        ContentValues v = new ContentValues();
+        v.put("done", done ? 1 : 0);
+        getWritableDatabase().update("grocery", v, "_id = ?", new String[]{String.valueOf(id)});
+    }
+
+    public void deleteItem(long id) {
+        getWritableDatabase().delete("grocery", "_id = ?", new String[]{String.valueOf(id)});
+    }
+
+    public int clearBoughtItems() {
+        return getWritableDatabase().delete("grocery", "done = 1", null);
+    }
+
+    /** Most often and most recently bought first. */
+    public List<Usual> usuals() {
+        List<Usual> out = new ArrayList<Usual>();
+        Cursor c = getReadableDatabase().rawQuery(
+                "SELECT name, shop FROM grocery_history ORDER BY uses DESC, last_used DESC LIMIT 80", null);
+        try {
+            while (c.moveToNext()) {
+                Usual u = new Usual();
+                u.name = c.getString(0);
+                u.shop = c.getLong(1);
+                out.add(u);
+            }
+        } finally {
+            c.close();
+        }
+        return out;
+    }
+
+    public void forgetUsual(String name) {
+        getWritableDatabase().delete("grocery_history", "name = ?", new String[]{name});
     }
 
     // ---- activity log ----
