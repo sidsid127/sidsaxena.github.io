@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/widget_bg"
+    android:orientation="vertical">
+
+    <LinearLayout
+        android:id="@+id/w_head"
+        android:layout_width="match_parent"
+        android:layout_height="44dp"
+        android:background="@drawable/widget_head"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingLeft="14dp">
+
+        <TextView
+            android:id="@+id/w_title"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:textColor="#FFFFFFFF"
+            android:textSize="15sp"
+            android:textStyle="bold" />
+
+        <ImageView
+            android:id="@+id/w_add"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:contentDescription="Add"
+            android:padding="9dp"
+            android:src="@drawable/ic_add" />
+
+        <ImageView
+            android:id="@+id/w_settings"
+            android:layout_width="36dp"
+            android:layout_height="40dp"
+            android:contentDescription="Change view"
+            android:padding="10dp"
+            android:src="@drawable/ic_tune" />
+    </LinearLayout>
+
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1">
+
+        <ListView
+            android:id="@+id/w_list"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:divider="@null"
+            android:dividerHeight="0dp" />
+
+        <TextView
+            android:id="@+id/w_empty"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:gravity="center"
+            android:padding="12dp"
+            android:textColor="@color/muted"
+            android:textSize="13sp" />
+
+        <LinearLayout
+            android:id="@+id/w_quick"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:gravity="center"
+            android:orientation="horizontal"
+            android:padding="6dp"
+            android:visibility="gone">
+
+            <TextView android:id="@+id/q1" style="@style/WidgetQuick" android:text="✅\nTask" />
+            <TextView android:id="@+id/q2" style="@style/WidgetQuick" android:text="🛒\nGrocery" />
+            <TextView android:id="@+id/q3" style="@style/WidgetQuick" android:text="📝\nNote" />
+            <TextView android:id="@+id/q4" style="@style/WidgetQuick" android:text="💶\nExpense" />
+            <TextView android:id="@+id/q5" style="@style/WidgetQuick" android:text="📔\nDiary" />
+        </LinearLayout>
+    </FrameLayout>
+</LinearLayout>

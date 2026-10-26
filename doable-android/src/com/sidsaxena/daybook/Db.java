@@ -28,6 +28,27 @@ public class Db extends SQLiteOpenHelper {
         public long category; // 0 = none
         public int priority;  // 0 none, 1 low, 2 medium, 3 high
         public double position; // manual order within the same priority (0 = never dragged)
+        public int time = -1;   // reminder time, minutes after midnight on the due day; -1 = none
+        public String repeat = ""; // Recurrence rule
+        public String notes = "";
+        public long snooze;     // reminder moved to this moment (0 = use due + time)
+
+        /** When the reminder should fire, or 0. */
+        public long remindAt() {
+            if (done) return 0;
+            if (snooze > 0) return snooze;
+            if (due == 0 || time < 0) return 0;
+            return due + time * 60000L + dstFix(due, time);
+        }
+    }
+
+    /** Daylight-saving safe "midnight + minutes". */
+    static long dstFix(long midnight, int minutes) {
+        java.util.Calendar c = java.util.Calendar.getInstance();
+        c.setTimeInMillis(midnight);
+        c.set(java.util.Calendar.HOUR_OF_DAY, minutes / 60);
+        c.set(java.util.Calendar.MINUTE, minutes % 60);
+        return c.getTimeInMillis() - (midnight + minutes * 60000L);
     }
 
     public static class Category {
@@ -42,6 +63,10 @@ public class Db extends SQLiteOpenHelper {
         public String body;
         public boolean pinned;
         public long modified;
+        public int color;        // 0 = none, else an ARGB colour
+        public String folder = "";
+        public boolean locked;   // body is encrypted
+        public long deleted;     // in "Recently deleted" since then; 0 = not deleted
     }
 
     public static class Shop {
@@ -56,12 +81,16 @@ public class Db extends SQLiteOpenHelper {
         public long shop;     // 0 = any shop
         public boolean done;
         public long created;
+        public String qty = "";
+        public long list = 1;
+        public String aisle = "";
     }
 
     /** A previously bought grocery item, offered under "Buy again". */
     public static class Usual {
         public String name;
         public long shop;
+        public long list = 1;
     }
 
     public static class Entry {
@@ -71,7 +100,7 @@ public class Db extends SQLiteOpenHelper {
     }
 
     public Db(Context context) {
-        super(context, "daybook.db", null, 4);
+        super(context, "daybook.db", null, 5);
     }
 
     @Override
@@ -85,6 +114,7 @@ public class Db extends SQLiteOpenHelper {
         createCategories(db);
         createV3(db);
         createV4(db);
+        createV5(db);
     }
 
     @Override
@@ -100,6 +130,65 @@ public class Db extends SQLiteOpenHelper {
             // Ticked grocery items now leave the list straight away.
             db.delete("grocery", "done = 1", null);
         }
+        if (oldVersion < 5) createV5(db);
+    }
+
+    /** Reminders, repeats, subtasks, note extras, grocery lists & prices, new modules. Version 5. */
+    private static void createV5(SQLiteDatabase db) {
+        String[] alters = {
+                "tasks ADD COLUMN time INTEGER NOT NULL DEFAULT -1",
+                "tasks ADD COLUMN repeat TEXT NOT NULL DEFAULT ''",
+                "tasks ADD COLUMN notes TEXT NOT NULL DEFAULT ''",
+                "tasks ADD COLUMN snooze INTEGER NOT NULL DEFAULT 0",
+                "notes ADD COLUMN color INTEGER NOT NULL DEFAULT 0",
+                "notes ADD COLUMN folder TEXT NOT NULL DEFAULT ''",
+                "notes ADD COLUMN locked INTEGER NOT NULL DEFAULT 0",
+                "notes ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0",
+                "grocery ADD COLUMN qty TEXT NOT NULL DEFAULT ''",
+                "grocery ADD COLUMN list INTEGER NOT NULL DEFAULT 1",
+                "grocery ADD COLUMN aisle TEXT NOT NULL DEFAULT ''",
+                "grocery_history ADD COLUMN list INTEGER NOT NULL DEFAULT 1",
+                "diary ADD COLUMN place TEXT NOT NULL DEFAULT ''",
+                "diary ADD COLUMN lat REAL NOT NULL DEFAULT 0",
+                "diary ADD COLUMN lon REAL NOT NULL DEFAULT 0",
+                "diary ADD COLUMN weather TEXT NOT NULL DEFAULT ''",
+                "diary ADD COLUMN temp TEXT NOT NULL DEFAULT ''",
+                "trips ADD COLUMN budget INTEGER NOT NULL DEFAULT 0",
+                "trips ADD COLUMN rates TEXT NOT NULL DEFAULT ''",
+                "trips ADD COLUMN pd_full INTEGER NOT NULL DEFAULT 2800",
+                "trips ADD COLUMN pd_partial INTEGER NOT NULL DEFAULT 1400",
+                "trips ADD COLUMN km_rate INTEGER NOT NULL DEFAULT 30",
+                "trips ADD COLUMN per_diem INTEGER NOT NULL DEFAULT 0",
+                "expenses ADD COLUMN km REAL NOT NULL DEFAULT 0",
+        };
+        for (String a : alters) db.execSQL("ALTER TABLE " + a);
+        db.execSQL("CREATE TABLE subtasks (_id INTEGER PRIMARY KEY AUTOINCREMENT, task INTEGER NOT NULL, text TEXT NOT NULL,"
+                + " done INTEGER NOT NULL DEFAULT 0, position INTEGER NOT NULL DEFAULT 0)");
+        db.execSQL("CREATE TABLE grocery_lists (_id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL)");
+        for (String n : new String[]{"Groceries", "Drugstore", "Hardware store"}) {
+            ContentValues v = new ContentValues();
+            v.put("name", n);
+            db.insert("grocery_lists", null, v);
+        }
+        db.execSQL("CREATE TABLE prices (_id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL COLLATE NOCASE,"
+                + " shop INTEGER NOT NULL, cents INTEGER NOT NULL, qty TEXT NOT NULL DEFAULT '', day INTEGER NOT NULL)");
+        db.execSQL("CREATE TABLE habits (_id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, emoji TEXT NOT NULL DEFAULT '',"
+                + " quit INTEGER NOT NULL DEFAULT 0, target INTEGER NOT NULL DEFAULT 1, days INTEGER NOT NULL DEFAULT 127,"
+                + " remind TEXT NOT NULL DEFAULT '', color INTEGER NOT NULL DEFAULT 0, archived INTEGER NOT NULL DEFAULT 0,"
+                + " created INTEGER NOT NULL)");
+        db.execSQL("CREATE TABLE habit_log (habit INTEGER NOT NULL, day INTEGER NOT NULL, count INTEGER NOT NULL,"
+                + " PRIMARY KEY (habit, day))");
+        db.execSQL("CREATE TABLE wallet (_id INTEGER PRIMARY KEY AUTOINCREMENT, type TEXT NOT NULL, title TEXT NOT NULL,"
+                + " number TEXT NOT NULL DEFAULT '', holder TEXT NOT NULL DEFAULT '', expiry INTEGER NOT NULL DEFAULT 0,"
+                + " barcode TEXT NOT NULL DEFAULT '', notes TEXT NOT NULL DEFAULT '', created INTEGER NOT NULL)");
+        db.execSQL("CREATE TABLE dates (_id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, kind TEXT NOT NULL,"
+                + " month INTEGER NOT NULL, day INTEGER NOT NULL, year INTEGER NOT NULL DEFAULT 0, yearly INTEGER NOT NULL DEFAULT 1,"
+                + " remind_days INTEGER NOT NULL DEFAULT 1, notes TEXT NOT NULL DEFAULT '', created INTEGER NOT NULL)");
+        db.execSQL("CREATE TABLE checklists (_id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL,"
+                + " trip INTEGER NOT NULL DEFAULT 0, template INTEGER NOT NULL DEFAULT 0, created INTEGER NOT NULL)");
+        db.execSQL("CREATE TABLE checklist_items (_id INTEGER PRIMARY KEY AUTOINCREMENT, list INTEGER NOT NULL, text TEXT NOT NULL,"
+                + " done INTEGER NOT NULL DEFAULT 0, position INTEGER NOT NULL DEFAULT 0)");
+        Store.seedTemplates(db);
     }
 
     /** Diary, trips, attachments and manual task order, added in version 4. */
@@ -164,7 +253,7 @@ public class Db extends SQLiteOpenHelper {
     public List<Task> tasks() {
         List<Task> out = new ArrayList<Task>();
         Cursor c = getReadableDatabase().rawQuery("SELECT _id, title, done, due, created, done_at,"
-                + " category, priority, position FROM tasks", null);
+                + " category, priority, position, time, repeat, notes, snooze FROM tasks", null);
         try {
             while (c.moveToNext()) {
                 Task t = new Task();
@@ -177,6 +266,10 @@ public class Db extends SQLiteOpenHelper {
                 t.category = c.getLong(6);
                 t.priority = c.getInt(7);
                 t.position = c.getDouble(8);
+                t.time = c.getInt(9);
+                t.repeat = c.getString(10);
+                t.notes = c.getString(11);
+                t.snooze = c.getLong(12);
                 out.add(t);
             }
         } finally {
@@ -186,13 +279,39 @@ public class Db extends SQLiteOpenHelper {
     }
 
     public void addTask(String title, long due, long category, int priority) {
+        Task t = new Task();
+        t.title = title;
+        t.due = due;
+        t.category = category;
+        t.priority = priority;
+        saveTask(t);
+    }
+
+    public Task task(long id) {
+        for (Task t : tasks()) if (t.id == id) return t;
+        return null;
+    }
+
+    /** Inserts (id 0) or updates every field of a task. */
+    public void saveTask(Task t) {
         ContentValues v = new ContentValues();
-        v.put("title", title);
-        v.put("due", due);
-        v.put("category", category);
-        v.put("priority", priority);
-        v.put("created", System.currentTimeMillis());
-        getWritableDatabase().insert("tasks", null, v);
+        v.put("title", t.title);
+        v.put("due", t.due);
+        v.put("category", t.category);
+        v.put("priority", t.priority);
+        v.put("time", t.time);
+        v.put("repeat", t.repeat);
+        v.put("notes", t.notes);
+        v.put("snooze", t.snooze);
+        v.put("done", t.done ? 1 : 0);
+        v.put("done_at", t.doneAt);
+        v.put("position", t.position);
+        if (t.id == 0) {
+            v.put("created", t.created = System.currentTimeMillis());
+            t.id = getWritableDatabase().insert("tasks", null, v);
+        } else {
+            updateTask(t.id, v);
+        }
     }
 
     public void updateTask(long id, String title, long due, long category, int priority) {
@@ -315,7 +434,8 @@ public class Db extends SQLiteOpenHelper {
     public List<Note> notes() {
         List<Note> out = new ArrayList<Note>();
         Cursor c = getReadableDatabase().rawQuery(
-                "SELECT _id, body, pinned, modified FROM notes ORDER BY pinned DESC, modified DESC", null);
+                "SELECT _id, body, pinned, modified, color, folder, locked, deleted FROM notes"
+                        + " ORDER BY pinned DESC, modified DESC", null);
         try {
             while (c.moveToNext()) {
                 Note n = new Note();
@@ -323,6 +443,10 @@ public class Db extends SQLiteOpenHelper {
                 n.body = c.getString(1);
                 n.pinned = c.getInt(2) != 0;
                 n.modified = c.getLong(3);
+                n.color = c.getInt(4);
+                n.folder = c.getString(5);
+                n.locked = c.getInt(6) != 0;
+                n.deleted = c.getLong(7);
                 out.add(n);
             }
         } finally {
@@ -345,6 +469,31 @@ public class Db extends SQLiteOpenHelper {
         v.put("body", body);
         v.put("modified", System.currentTimeMillis());
         getWritableDatabase().update("notes", v, "_id = ?", new String[]{String.valueOf(id)});
+    }
+
+    /** Colour, folder, lock state and "recently deleted" time. */
+    public void saveNoteMeta(Note n) {
+        ContentValues v = new ContentValues();
+        v.put("color", n.color);
+        v.put("folder", n.folder);
+        v.put("locked", n.locked ? 1 : 0);
+        v.put("deleted", n.deleted);
+        v.put("pinned", n.pinned ? 1 : 0);
+        getWritableDatabase().update("notes", v, "_id = ?", new String[]{String.valueOf(n.id)});
+    }
+
+    /** Removes notes that have been in "Recently deleted" for 30 days; returns their attachment files. */
+    public List<String> purgeDeletedNotes() {
+        long cutoff = System.currentTimeMillis() - 30L * 24 * 3600 * 1000;
+        List<String> files = new ArrayList<String>();
+        for (Note n : notes()) {
+            if (n.deleted > 0 && n.deleted < cutoff) {
+                files.addAll(attachmentFiles("note", n.id));
+                deleteAttachmentsOf("note", n.id);
+                deleteNote(n.id);
+            }
+        }
+        return files;
     }
 
     public void setPinned(long id, boolean pinned) {
@@ -401,7 +550,7 @@ public class Db extends SQLiteOpenHelper {
     public List<Item> items() {
         List<Item> out = new ArrayList<Item>();
         Cursor c = getReadableDatabase().rawQuery(
-                "SELECT _id, name, shop, done, created FROM grocery ORDER BY done, created", null);
+                "SELECT _id, name, shop, done, created, qty, list, aisle FROM grocery ORDER BY done, created", null);
         try {
             while (c.moveToNext()) {
                 Item it = new Item();
@@ -410,6 +559,9 @@ public class Db extends SQLiteOpenHelper {
                 it.shop = c.getLong(2);
                 it.done = c.getInt(3) != 0;
                 it.created = c.getLong(4);
+                it.qty = c.getString(5);
+                it.list = c.getLong(6);
+                it.aisle = c.getString(7);
                 out.add(it);
             }
         } finally {
@@ -420,24 +572,47 @@ public class Db extends SQLiteOpenHelper {
 
     /** Adds an item to the list and remembers it (and its shop) for "Buy again". */
     public void addItem(String name, long shop) {
+        addItem(name, "", shop, 1);
+    }
+
+    /** Adds an item to a list and remembers it (with its shop and list) for "Buy again". */
+    public void addItem(String name, String qty, long shop, long list) {
         long now = System.currentTimeMillis();
         SQLiteDatabase db = getWritableDatabase();
         ContentValues v = new ContentValues();
         v.put("name", name);
+        v.put("qty", qty);
         v.put("shop", shop);
+        v.put("list", list);
+        v.put("aisle", GroceryText.aisle(name));
         v.put("created", now);
         db.insert("grocery", null, v);
         // (No UPSERT: SQLite on older Android versions doesn't support it.)
-        db.execSQL("UPDATE grocery_history SET shop = ?, uses = uses + 1, last_used = ? WHERE name = ?",
-                new Object[]{shop, now, name});
+        db.execSQL("UPDATE grocery_history SET shop = ?, list = ?, uses = uses + 1, last_used = ? WHERE name = ?",
+                new Object[]{shop, list, now, name});
         if (android.database.DatabaseUtils.longForQuery(db, "SELECT changes()", null) == 0) {
             ContentValues h = new ContentValues();
             h.put("name", name);
             h.put("shop", shop);
+            h.put("list", list);
             h.put("uses", 1);
             h.put("last_used", now);
             db.insert("grocery_history", null, h);
         }
+    }
+
+    public void updateItemFull(Item it) {
+        ContentValues v = new ContentValues();
+        v.put("name", it.name);
+        v.put("qty", it.qty);
+        v.put("shop", it.shop);
+        v.put("list", it.list);
+        v.put("aisle", it.aisle);
+        getWritableDatabase().update("grocery", v, "_id = ?", new String[]{String.valueOf(it.id)});
+        ContentValues h = new ContentValues();
+        h.put("shop", it.shop);
+        h.put("list", it.list);
+        getWritableDatabase().update("grocery_history", h, "name = ?", new String[]{it.name});
     }
 
     public void updateItem(long id, String name, long shop) {
@@ -468,12 +643,13 @@ public class Db extends SQLiteOpenHelper {
     public List<Usual> usuals() {
         List<Usual> out = new ArrayList<Usual>();
         Cursor c = getReadableDatabase().rawQuery(
-                "SELECT name, shop FROM grocery_history ORDER BY uses DESC, last_used DESC LIMIT 80", null);
+                "SELECT name, shop, list FROM grocery_history ORDER BY uses DESC, last_used DESC LIMIT 150", null);
         try {
             while (c.moveToNext()) {
                 Usual u = new Usual();
                 u.name = c.getString(0);
                 u.shop = c.getLong(1);
+                u.list = c.getLong(2);
                 out.add(u);
             }
         } finally {
@@ -492,6 +668,9 @@ public class Db extends SQLiteOpenHelper {
         v.put("name", it.name);
         v.put("shop", it.shop);
         v.put("created", it.created);
+        v.put("qty", it.qty);
+        v.put("list", it.list);
+        v.put("aisle", it.aisle);
         getWritableDatabase().insert("grocery", null, v);
     }
 
@@ -505,9 +684,14 @@ public class Db extends SQLiteOpenHelper {
         public String highs = "";
         public String lows = "";
         public long modified;
+        public String place = "";
+        public double lat, lon;
+        public String weather = "";
+        public String temp = "";
 
         public boolean isEmpty() {
-            return mood == 0 && text.trim().isEmpty() && highs.trim().isEmpty() && lows.trim().isEmpty();
+            return mood == 0 && text.trim().isEmpty() && highs.trim().isEmpty() && lows.trim().isEmpty()
+                    && place.isEmpty() && weather.isEmpty() && temp.isEmpty();
         }
     }
 
@@ -515,7 +699,7 @@ public class Db extends SQLiteOpenHelper {
     public List<Diary> diary() {
         List<Diary> out = new ArrayList<Diary>();
         Cursor c = getReadableDatabase().rawQuery(
-                "SELECT _id, day, mood, text, highs, lows, modified FROM diary ORDER BY day DESC", null);
+                "SELECT _id, day, mood, text, highs, lows, modified, place, lat, lon, weather, temp FROM diary ORDER BY day DESC", null);
         try {
             while (c.moveToNext()) {
                 Diary d = new Diary();
@@ -526,6 +710,11 @@ public class Db extends SQLiteOpenHelper {
                 d.highs = c.getString(4);
                 d.lows = c.getString(5);
                 d.modified = c.getLong(6);
+                d.place = c.getString(7);
+                d.lat = c.getDouble(8);
+                d.lon = c.getDouble(9);
+                d.weather = c.getString(10);
+                d.temp = c.getString(11);
                 out.add(d);
             }
         } finally {
@@ -546,6 +735,11 @@ public class Db extends SQLiteOpenHelper {
         v.put("text", d.text);
         v.put("highs", d.highs);
         v.put("lows", d.lows);
+        v.put("place", d.place);
+        v.put("lat", d.lat);
+        v.put("lon", d.lon);
+        v.put("weather", d.weather);
+        v.put("temp", d.temp);
         v.put("modified", d.modified = System.currentTimeMillis());
         if (d.id == 0) d.id = getWritableDatabase().insert("diary", null, v);
         else getWritableDatabase().update("diary", v, "_id = ?", new String[]{String.valueOf(d.id)});
@@ -565,7 +759,12 @@ public class Db extends SQLiteOpenHelper {
         public int kind;
         public String destination = "";
         public long start, finish;   // local midnight, 0 = not set
-        public String currency = "EUR";
+        public String currency = "EUR"; // home currency (totals and reports)
+        public long budget;          // private trips, in home currency cents; 0 = none
+        public String rates = "";    // "INR=0.0108;USD=0.92": value of 1 unit in the home currency
+        public long pdFull = 2800, pdPartial = 1400; // per-diem rates in cents (German defaults)
+        public long kmRate = 30;     // mileage allowance, cents per km
+        public boolean perDiem;      // claim per-diem allowances on this trip
     }
 
     public static class Expense {
@@ -573,7 +772,9 @@ public class Db extends SQLiteOpenHelper {
         public String category = "", currency = "EUR", merchant = "", attendees = "", payment = "", note = "";
         public long cents;
         public boolean submitted;
+        public double km;       // mileage claims
         public String tripName; // filled by monthly queries
+        public String tripHome, tripRates; // filled by monthly queries (for conversion)
     }
 
     /** Booking/pass ("booking"), place to go ("place") or journal/notes entry ("journal"). */
@@ -586,8 +787,8 @@ public class Db extends SQLiteOpenHelper {
     /** Upcoming and current trips first, then past ones (newest first). */
     public List<Trip> trips() {
         List<Trip> out = new ArrayList<Trip>();
-        Cursor c = getReadableDatabase().rawQuery("SELECT _id, name, kind, destination, start, finish, currency"
-                + " FROM trips ORDER BY CASE WHEN finish = 0 OR finish >= ? THEN 0 ELSE 1 END, start DESC, _id DESC",
+        Cursor c = getReadableDatabase().rawQuery("SELECT _id, name, kind, destination, start, finish, currency,"
+                + " budget, rates, pd_full, pd_partial, km_rate, per_diem FROM trips ORDER BY CASE WHEN finish = 0 OR finish >= ? THEN 0 ELSE 1 END, start DESC, _id DESC",
                 new String[]{String.valueOf(Util.startOfDay(System.currentTimeMillis()))});
         try {
             while (c.moveToNext()) {
@@ -599,6 +800,12 @@ public class Db extends SQLiteOpenHelper {
                 t.start = c.getLong(4);
                 t.finish = c.getLong(5);
                 t.currency = c.getString(6);
+                t.budget = c.getLong(7);
+                t.rates = c.getString(8);
+                t.pdFull = c.getLong(9);
+                t.pdPartial = c.getLong(10);
+                t.kmRate = c.getLong(11);
+                t.perDiem = c.getInt(12) != 0;
                 out.add(t);
             }
         } finally {
@@ -615,6 +822,12 @@ public class Db extends SQLiteOpenHelper {
         v.put("start", t.start);
         v.put("finish", t.finish);
         v.put("currency", t.currency);
+        v.put("budget", t.budget);
+        v.put("rates", t.rates);
+        v.put("pd_full", t.pdFull);
+        v.put("pd_partial", t.pdPartial);
+        v.put("km_rate", t.kmRate);
+        v.put("per_diem", t.perDiem ? 1 : 0);
         if (t.id == 0) {
             v.put("created", System.currentTimeMillis());
             t.id = getWritableDatabase().insert("trips", null, v);
@@ -651,12 +864,17 @@ public class Db extends SQLiteOpenHelper {
         e.payment = c.getString(8);
         e.note = c.getString(9);
         e.submitted = c.getInt(10) != 0;
-        if (c.getColumnCount() > 11) e.tripName = c.getString(11);
+        e.km = c.getDouble(11);
+        if (c.getColumnCount() > 12) {
+            e.tripName = c.getString(12);
+            e.tripHome = c.getString(13);
+            e.tripRates = c.getString(14);
+        }
         return e;
     }
 
     private static final String EXPENSE_COLS = "e._id, e.trip, e.day, e.category, e.cents, e.currency, e.merchant,"
-            + " e.attendees, e.payment, e.note, e.submitted";
+            + " e.attendees, e.payment, e.note, e.submitted, e.km";
 
     /** A trip's expenses, newest day first. */
     public List<Expense> expenses(long trip) {
@@ -674,7 +892,7 @@ public class Db extends SQLiteOpenHelper {
     /** Business-trip expenses with from <= day < to, oldest first (for the monthly report). */
     public List<Expense> businessExpenses(long from, long to) {
         List<Expense> out = new ArrayList<Expense>();
-        Cursor c = getReadableDatabase().rawQuery("SELECT " + EXPENSE_COLS + ", t.name FROM expenses e"
+        Cursor c = getReadableDatabase().rawQuery("SELECT " + EXPENSE_COLS + ", t.name, t.currency, t.rates FROM expenses e"
                 + " JOIN trips t ON t._id = e.trip WHERE t.kind = 0 AND e.day >= ? AND e.day < ?"
                 + " ORDER BY e.day, e.created", new String[]{String.valueOf(from), String.valueOf(to)});
         try {
@@ -710,6 +928,7 @@ public class Db extends SQLiteOpenHelper {
         v.put("payment", e.payment);
         v.put("note", e.note);
         v.put("submitted", e.submitted ? 1 : 0);
+        v.put("km", e.km);
         if (e.id == 0) {
             v.put("created", System.currentTimeMillis());
             e.id = getWritableDatabase().insert("expenses", null, v);

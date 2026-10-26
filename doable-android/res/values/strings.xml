@@ -25,4 +25,9 @@
     <string name="hint_item">Add an item…</string>
     <string name="vault_locked">Your passwords are encrypted on this phone.</string>
     <string name="empty_vault">No passwords saved yet.\nTap + to add one.</string>
+    <string name="module_today">Today</string>
+    <string name="module_habits">Habits</string>
+    <string name="module_wallet">Wallet</string>
+    <string name="module_dates">Important dates</string>
+    <string name="module_checklists">Checklists</string>
 </resources>

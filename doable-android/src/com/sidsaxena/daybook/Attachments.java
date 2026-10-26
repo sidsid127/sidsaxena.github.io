@@ -46,6 +46,10 @@ final class Attachments {
         return name.endsWith(".pdf");
     }
 
+    static boolean isAudio(String name) {
+        return name.endsWith(".m4a");
+    }
+
     /** Copies picked content in; images are shrunk to at most 2048 px and turned upright. Returns the file name. */
     static String importUri(Context c, Uri uri) throws IOException {
         String type = c.getContentResolver().getType(uri);
@@ -134,6 +138,7 @@ final class Attachments {
         String key = name + "@" + px;
         Bitmap cached = THUMBS.get(key);
         if (cached != null) return cached;
+        if (isAudio(name)) return null;
         Bitmap b = isPdf(name) ? pdfPage(c, name, px) : decode(file(c, name), px);
         if (b != null) THUMBS.put(key, b);
         return b;

@@ -39,19 +39,34 @@ public class MainActivity extends Activity {
 
     private static final int MENU_LOCK = 1;
     private static final int MENU_THEME = 2;
+    private static final int MENU_SEARCH = 3;
+    private static final int MENU_BACKUP = 4;
+    private static final int MENU_MODULES = 5;
 
     private static final int REQ_AUTH = 1;
     private static final int REQ_CAMERA = 2;
     private static final int REQ_PICK = 3;
+    private static final int REQ_SCAN = 4;
+    private static final int REQ_OPEN_DOC = 5;
+    private static final int REQ_CREATE_DOC = 6;
+
+    interface UriPicked {
+        void onUri(android.net.Uri uri);
+    }
+
+    private UriPicked pendingUri;
 
     /** Modules in side-menu order; the last one (activity log) sits below a divider. */
-    private static final String[] MODULE_IDS = {"tasks", "notes", "diary", "trips", "grocery", "vault", "log"};
+    private static final String[] MODULE_IDS = {"today", "tasks", "notes", "diary", "trips", "grocery", "habits",
+            "dates", "checklists", "wallet", "vault", "log"};
     private static final int[] MODULE_NAMES = {
-            R.string.module_tasks, R.string.module_notes, R.string.module_diary, R.string.module_trips,
-            R.string.module_grocery, R.string.module_vault, R.string.module_log};
+            R.string.module_today, R.string.module_tasks, R.string.module_notes, R.string.module_diary, R.string.module_trips,
+            R.string.module_grocery, R.string.module_habits, R.string.module_dates, R.string.module_checklists,
+            R.string.module_wallet, R.string.module_vault, R.string.module_log};
     private static final int[] MODULE_ICONS = {
-            R.drawable.ic_todo, R.drawable.ic_note, R.drawable.ic_diary, R.drawable.ic_trip,
-            R.drawable.ic_cart, R.drawable.ic_key, R.drawable.ic_history};
+            R.drawable.ic_today, R.drawable.ic_todo, R.drawable.ic_note, R.drawable.ic_diary, R.drawable.ic_trip,
+            R.drawable.ic_cart, R.drawable.ic_habit, R.drawable.ic_cake, R.drawable.ic_checklist,
+            R.drawable.ic_wallet, R.drawable.ic_key, R.drawable.ic_history};
 
     interface AuthResult {
         void done(boolean ok, int errorCode);
@@ -62,6 +77,7 @@ public class MainActivity extends Activity {
     }
 
     Db db;
+    Store st;
     SharedPreferences prefs;
     FrameLayout content;
 
@@ -117,6 +133,7 @@ public class MainActivity extends Activity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
         db = new Db(this);
+        st = new Store(db);
         prefs = getSharedPreferences("daybook", MODE_PRIVATE);
 
         content = (FrameLayout) findViewById(R.id.content);
@@ -126,8 +143,9 @@ public class MainActivity extends Activity {
         drawerItems = (LinearLayout) findViewById(R.id.drawer_items);
 
         screens = new Screen[]{
-                new TasksScreen(this), new NotesScreen(this), new DiaryScreen(this), new TripsScreen(this),
-                new GroceryScreen(this), new VaultScreen(this), new LogScreen(this)};
+                new TodayScreen(this), new TasksScreen(this), new NotesScreen(this), new DiaryScreen(this),
+                new TripsScreen(this), new GroceryScreen(this), new HabitsScreen(this), new DatesScreen(this),
+                new ChecklistsScreen(this), new WalletScreen(this), new VaultScreen(this), new LogScreen(this)};
         for (Screen s : screens) {
             s.root.setVisibility(View.GONE);
             content.addView(s.root);
@@ -144,8 +162,165 @@ public class MainActivity extends Activity {
         }
 
         locked = lockEnabled() && (savedInstanceState == null || savedInstanceState.getBoolean("locked", true));
-        int module = java.util.Arrays.asList(MODULE_IDS).indexOf(prefs.getString("module_id", "tasks"));
-        show(Math.max(0, module), false);
+        int module = java.util.Arrays.asList(MODULE_IDS).indexOf(prefs.getString("module_id", "today"));
+        if (module < 0 || !isModuleVisible(MODULE_IDS[module])) module = firstVisible();
+        show(module, false);
+
+        new Thread(new Runnable() {
+            public void run() {
+                Reminders.createChannels(MainActivity.this);
+                Reminders.schedule(MainActivity.this);
+            }
+        }).start();
+        setupShortcuts();
+        String restored = prefs.getString("restoreMsg", null);
+        if (restored != null) {
+            prefs.edit().remove("restoreMsg").apply();
+            new AlertDialog.Builder(this).setMessage(restored).setPositiveButton("OK", null).show();
+        }
+        if (savedInstanceState == null) handleIntent(getIntent());
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        handleIntent(intent);
+    }
+
+    private Intent pendingIntent;  // waits until the app is unlocked
+
+    /** Opens what a notification, widget, shortcut or share asked for. */
+    private void handleIntent(Intent i) {
+        if (i == null) return;
+        boolean share = ShareIn.isShare(i);
+        if (!share && i.getStringExtra("module") == null) return;
+        if (locked) {
+            pendingIntent = i;
+            return;
+        }
+        if (share) {
+            ShareIn.handle(this, i);
+        } else {
+            go(i.getStringExtra("module"), i.getLongExtra("item", 0), i.getStringExtra("quick"));
+        }
+        setIntent(new Intent(this, MainActivity.class));  // don't repeat it after rotation / recreation
+    }
+
+    private void runPendingIntent() {
+        Intent i = pendingIntent;
+        pendingIntent = null;
+        if (i != null) handleIntent(i);
+    }
+
+    /** Opens a module, then optionally one item in it or a quick action ("task", "note", "expense"…). */
+    void go(String module, long item, String quick) {
+        int index = java.util.Arrays.asList(MODULE_IDS).indexOf(module);
+        if (index < 0) return;
+        if (drawer.getVisibility() == View.VISIBLE) closeDrawer();
+        if (index != currentIndex) show(index, true);
+        if (item != 0) current.open(item);
+        if (quick != null) current.quick(quick);
+    }
+
+    Screen screen(String module) {
+        return screens[java.util.Arrays.asList(MODULE_IDS).indexOf(module)];
+    }
+
+    String moduleName(String module) {
+        int i = java.util.Arrays.asList(MODULE_IDS).indexOf(module);
+        return i < 0 ? module : getString(MODULE_NAMES[i]);
+    }
+
+    /** True while another app (camera, file picker, share sheet, system lock screen) is in front. */
+    boolean isAway() {
+        return leavingForExternal;
+    }
+
+    // ---------------------------------------------------------------- module visibility
+
+    boolean isModuleVisible(String id) {
+        return !("," + prefs.getString("hiddenModules", "") + ",").contains("," + id + ",");
+    }
+
+    private int firstVisible() {
+        for (int i = 0; i < MODULE_IDS.length; i++) if (isModuleVisible(MODULE_IDS[i])) return i;
+        return 0;
+    }
+
+    private void chooseModules() {
+        final String[] names = new String[MODULE_IDS.length];
+        final boolean[] on = new boolean[MODULE_IDS.length];
+        for (int i = 0; i < names.length; i++) {
+            names[i] = getString(MODULE_NAMES[i]);
+            on[i] = isModuleVisible(MODULE_IDS[i]);
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("Show in the menu")
+                .setMultiChoiceItems(names, on, new DialogInterface.OnMultiChoiceClickListener() {
+                    public void onClick(DialogInterface d, int which, boolean checked) { on[which] = checked; }
+                })
+                .setPositiveButton("Save", new DialogInterface.OnClickListener() {
+                    public void onClick(DialogInterface d, int which) {
+                        StringBuilder hidden = new StringBuilder();
+                        int shown = 0;
+                        for (int i = 0; i < on.length; i++) {
+                            if (on[i]) shown++;
+                            else hidden.append(hidden.length() == 0 ? "" : ",").append(MODULE_IDS[i]);
+                        }
+                        if (shown == 0) {
+                            Toast.makeText(MainActivity.this, "Keep at least one module", Toast.LENGTH_SHORT).show();
+                            return;
+                        }
+                        prefs.edit().putString("hiddenModules", hidden.toString()).apply();
+                        if (!isModuleVisible(MODULE_IDS[currentIndex])) show(firstVisible(), true);
+                        else buildDrawer();
+                        Toast.makeText(MainActivity.this, "Hidden modules keep their data", Toast.LENGTH_SHORT).show();
+                    }
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    // ---------------------------------------------------------------- app-icon shortcuts
+
+    /** Long-press the app icon: new task, new note, shopping list, search. */
+    private void setupShortcuts() {
+        if (Build.VERSION.SDK_INT < 25) return;
+        try {
+            android.content.pm.ShortcutManager sm = getSystemService(android.content.pm.ShortcutManager.class);
+            String[][] defs = {
+                    {"task", "New task", "tasks", "task"},
+                    {"note", "New note", "notes", "note"},
+                    {"grocery", "Shopping list", "grocery", "grocery"},
+                    {"today", "Today", "today", null},
+            };
+            int[] icons = {R.drawable.ic_todo, R.drawable.ic_note, R.drawable.ic_cart, R.drawable.ic_today};
+            List<android.content.pm.ShortcutInfo> list = new java.util.ArrayList<android.content.pm.ShortcutInfo>();
+            for (int k = 0; k < defs.length; k++) {
+                Intent i = new Intent(Intent.ACTION_VIEW, null, this, MainActivity.class).putExtra("module", defs[k][2])
+                        .setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                if (defs[k][3] != null) i.putExtra("quick", defs[k][3]);
+                android.graphics.drawable.Icon icon = android.graphics.drawable.Icon.createWithResource(this, icons[k])
+                        .setTint(Util.color(this, R.color.primary));
+                list.add(new android.content.pm.ShortcutInfo.Builder(this, defs[k][0])
+                        .setShortLabel(defs[k][1]).setIcon(icon).setIntent(i).build());
+            }
+            sm.setDynamicShortcuts(list);
+        } catch (RuntimeException ignored) {
+            // shortcuts are a nice-to-have
+        }
+    }
+
+    /** Closes the open note / diary entry (saving it) before the database is replaced. */
+    void beforeRestore() {
+        current.onHide();
+    }
+
+    /** After a restore: reopen everything from the restored data. */
+    void restarted(String message) {
+        prefs.edit().putString("restoreMsg", message).commit();
+        recreate();
     }
 
     @Override
@@ -177,6 +352,9 @@ public class MainActivity extends Activity {
         super.onStop();
         if (authInProgress || isChangingConfigurations()) return;
         current.onStop();
+        new Thread(new Runnable() {
+            public void run() { Reminders.refresh(getApplicationContext()); }
+        }).start();
         if (lockEnabled() && !leavingForExternal) {
             locked = true;
             showLockScreen(true);
@@ -187,7 +365,7 @@ public class MainActivity extends Activity {
     public void onBackPressed() {
         if (drawer.getVisibility() == View.VISIBLE) closeDrawer();
         else if (current.onBack()) return;
-        else if (currentIndex != 0) show(0, true);
+        else if (currentIndex != firstVisible()) show(firstVisible(), true);
         else super.onBackPressed();
     }
 
@@ -220,6 +398,7 @@ public class MainActivity extends Activity {
         drawerItems.removeAllViews();
         for (int i = 0; i < screens.length; i++) {
             final int index = i;
+            if (!isModuleVisible(MODULE_IDS[i])) continue;
             boolean on = i == currentIndex;
             LinearLayout row = new LinearLayout(this);
             row.setOrientation(LinearLayout.HORIZONTAL);
@@ -249,15 +428,52 @@ public class MainActivity extends Activity {
                     if (index != currentIndex) show(index, true);
                 }
             });
+            if (MODULE_IDS[i].equals("log")) divider(); // the less-used activity log sits below a divider
             drawerItems.addView(row);
-            if (i == screens.length - 2) { // divider before the less-used activity log
-                View line = new View(this);
-                line.setBackgroundColor(Util.color(this, R.color.divider));
-                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 1);
-                lp.setMargins(0, Util.dp(this, 8), 0, Util.dp(this, 8));
-                drawerItems.addView(line, lp);
-            }
         }
+        divider();
+        drawerAction(R.drawable.ic_search, "Search everything", new Runnable() {
+            public void run() { Search.open(MainActivity.this); }
+        });
+        drawerAction(R.drawable.ic_backup, "Backup & restore", new Runnable() {
+            public void run() { Backup.show(MainActivity.this); }
+        });
+        drawerAction(R.drawable.ic_tune, "Show / hide modules", new Runnable() {
+            public void run() { chooseModules(); }
+        });
+    }
+
+    private void divider() {
+        View line = new View(this);
+        line.setBackgroundColor(Util.color(this, R.color.divider));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 1);
+        lp.setMargins(0, Util.dp(this, 8), 0, Util.dp(this, 8));
+        drawerItems.addView(line, lp);
+    }
+
+    private void drawerAction(int iconRes, String text, final Runnable action) {
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(Util.dp(this, 20), 0, Util.dp(this, 20), 0);
+        row.setMinimumHeight(Util.dp(this, 48));
+        row.setBackgroundResource(android.R.drawable.list_selector_background);
+        ImageView icon = new ImageView(this);
+        icon.setImageResource(iconRes);
+        icon.setColorFilter(Util.color(this, R.color.muted), PorterDuff.Mode.SRC_IN);
+        row.addView(icon, new LinearLayout.LayoutParams(Util.dp(this, 22), Util.dp(this, 22)));
+        TextView label = new TextView(this);
+        label.setText(text);
+        label.setTextSize(15);
+        label.setTextColor(Util.color(this, R.color.text));
+        label.setPadding(Util.dp(this, 24), 0, 0, 0);
+        row.addView(label);
+        row.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                closeDrawer();
+                action.run();
+            }
+        });
+        drawerItems.addView(row);
     }
 
     private void openDrawer() {
@@ -284,8 +500,13 @@ public class MainActivity extends Activity {
     @Override
     public boolean onCreateOptionsMenu(Menu menu) {
         current.onCreateMenu(menu);
+        MenuItem search = menu.add(0, MENU_SEARCH, 40, "Search everything");
+        search.setIcon(R.drawable.ic_search);
+        search.setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM);
+        menu.add(0, MENU_BACKUP, 49, "Backup & restore…");
         menu.add(0, MENU_LOCK, 50, "Fingerprint app lock").setCheckable(true);
         menu.add(0, MENU_THEME, 51, "Theme (light / dark)");
+        menu.add(0, MENU_MODULES, 52, "Show / hide modules…");
         return true;
     }
 
@@ -318,6 +539,18 @@ public class MainActivity extends Activity {
         }
         if (id == MENU_THEME) {
             chooseTheme();
+            return true;
+        }
+        if (id == MENU_SEARCH) {
+            Search.open(this);
+            return true;
+        }
+        if (id == MENU_BACKUP) {
+            Backup.show(this);
+            return true;
+        }
+        if (id == MENU_MODULES) {
+            chooseModules();
             return true;
         }
         return super.onOptionsItemSelected(item);
@@ -389,6 +622,82 @@ public class MainActivity extends Activity {
         }
     }
 
+    private Runnable pendingPermission;
+
+    /** Runs {@code granted} once the runtime permission is given (asks first if needed). */
+    void withPermission(String permission, String why, Runnable granted) {
+        if (checkSelfPermission(permission) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            granted.run();
+            return;
+        }
+        pendingPermission = granted;
+        leavingForExternal = true;
+        requestPermissions(new String[]{permission}, 8);
+        Toast.makeText(this, why, Toast.LENGTH_SHORT).show();
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] results) {
+        if (requestCode == 8) {
+            Runnable r = pendingPermission;
+            pendingPermission = null;
+            if (r != null && results.length > 0 && results[0] == android.content.pm.PackageManager.PERMISSION_GRANTED) r.run();
+            else if (r != null) Toast.makeText(this, "Permission not given", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    /** Asks for permission to show notifications (Android 13+), once a reminder is first set. */
+    void ensureNotifications() {
+        Reminders.createChannels(this);
+        if (Build.VERSION.SDK_INT >= 33
+                && checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            leavingForExternal = true;
+            requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS}, 7);
+        }
+    }
+
+        /** Lets the user pick a file to read (e.g. a backup or a CSV). */
+    void openDocument(String[] mimeTypes, UriPicked cb) {
+        Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*");
+        i.putExtra(Intent.EXTRA_MIME_TYPES, mimeTypes);
+        pendingUri = cb;
+        leavingForExternal = true;
+        try {
+            startActivityForResult(i, REQ_OPEN_DOC);
+        } catch (RuntimeException e) {
+            pendingUri = null;
+            Toast.makeText(this, "No file picker on this phone", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    /** Lets the user choose where to save a new file (Downloads, Google Drive, USB stick…). */
+    void createDocument(String fileName, String mimeType, UriPicked cb) {
+        Intent i = new Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType(mimeType)
+                .putExtra(Intent.EXTRA_TITLE, fileName);
+        pendingUri = cb;
+        leavingForExternal = true;
+        try {
+            startActivityForResult(i, REQ_CREATE_DOC);
+        } catch (RuntimeException e) {
+            pendingUri = null;
+            Toast.makeText(this, "No file picker on this phone", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    String readText(android.net.Uri uri) throws java.io.IOException {
+        java.io.InputStream in = getContentResolver().openInputStream(uri);
+        if (in == null) throw new java.io.IOException("Cannot open file");
+        try {
+            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+            byte[] buf = new byte[16384];
+            int n;
+            while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+            return out.toString("UTF-8");
+        } finally {
+            in.close();
+        }
+    }
+
     /** Starts another app (viewer, share sheet, …) without the app lock kicking in on return. */
     void startExternal(Intent i) {
         leavingForExternal = true;
@@ -397,20 +706,40 @@ public class MainActivity extends Activity {
 
     // ---------------------------------------------------------------- photos & files
 
-    /** Lets the user take a photo or pick photos / PDFs; delivers the stored attachment file names. */
     void pickAttachments(final FilesPicked result) {
+        pickAttachments(result, false);
+    }
+
+    /** Photo, document scan, gallery, file or (optionally) a voice note; delivers stored attachment file names. */
+    void pickAttachments(final FilesPicked result, final boolean voice) {
+        String[] items = voice
+                ? new String[]{"Take a photo", "Scan a document", "Choose photos or screenshots", "Choose a file (PDF or image)", "Record a voice note"}
+                : new String[]{"Take a photo", "Scan a document", "Choose photos or screenshots", "Choose a file (PDF or image)"};
         new AlertDialog.Builder(this)
-                .setItems(new String[]{"Take a photo", "Choose photos or screenshots", "Choose a file (PDF or image)"},
+                .setItems(items,
                         new DialogInterface.OnClickListener() {
-                            public void onClick(DialogInterface d, int which) {
+                            public void onClick(DialogInterface d, int pick) {
+                                if (pick == 4) {
+                                    withPermission(android.Manifest.permission.RECORD_AUDIO, "Doable needs the microphone to record voice notes.", new Runnable() {
+                                        public void run() {
+                                            Voice.record(MainActivity.this, new Voice.Done() {
+                                                public void onRecorded(String file) {
+                                                    result.onFiles(java.util.Collections.singletonList(file));
+                                                }
+                                            });
+                                        }
+                                    });
+                                    return;
+                                }
+                                int which = pick == 0 ? 0 : pick == 1 ? -1 : pick - 1;
                                 Intent i;
                                 int req = REQ_PICK;
-                                if (which == 0) {
+                                if (which <= 0) {
                                     new java.io.File(getFilesDir(), "capture.jpg").delete();
                                     i = new Intent(android.provider.MediaStore.ACTION_IMAGE_CAPTURE);
                                     i.putExtra(android.provider.MediaStore.EXTRA_OUTPUT, Files.CAPTURE);
                                     i.addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION | Intent.FLAG_GRANT_READ_URI_PERMISSION);
-                                    req = REQ_CAMERA;
+                                    req = which < 0 ? REQ_SCAN : REQ_CAMERA;
                                 } else if (which == 1 && Build.VERSION.SDK_INT >= 33) {
                                     i = new Intent("android.provider.action.PICK_IMAGES");
                                     i.putExtra("android.provider.extra.PICK_IMAGES_MAX", 20);
@@ -437,6 +766,11 @@ public class MainActivity extends Activity {
                             }
                         })
                 .show();
+    }
+
+    /** Copies files shared from other apps into Doable, then reports their stored names. */
+    void importUris(List<android.net.Uri> uris, FilesPicked result) {
+        importPicked(result, uris, false);
     }
 
     /** Copies the picked/captured files in the background, then reports them. */
@@ -493,6 +827,25 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        if ((requestCode == REQ_OPEN_DOC || requestCode == REQ_CREATE_DOC) && pendingUri != null) {
+            UriPicked cb = pendingUri;
+            pendingUri = null;
+            if (resultCode == RESULT_OK && data != null && data.getData() != null) cb.onUri(data.getData());
+            return;
+        }
+        if (requestCode == REQ_SCAN && pendingFiles != null) {
+            final FilesPicked r = pendingFiles;
+            pendingFiles = null;
+            if (resultCode != RESULT_OK) return;
+            final java.io.File capture = new java.io.File(getFilesDir(), "capture.jpg");
+            DocScan.crop(this, capture, new DocScan.Done() {
+                public void onScanned(String file) {
+                    capture.delete();
+                    r.onFiles(java.util.Collections.singletonList(file));
+                }
+            });
+            return;
+        }
         if ((requestCode == REQ_CAMERA || requestCode == REQ_PICK) && pendingFiles != null) {
             FilesPicked r = pendingFiles;
             pendingFiles = null;
@@ -531,6 +884,7 @@ public class MainActivity extends Activity {
                     locked = false;
                     showLockScreen(false);
                     current.onShow();
+                    runPendingIntent();
                 }
                 // Otherwise stay on the lock screen; "Unlock" retries.
             }

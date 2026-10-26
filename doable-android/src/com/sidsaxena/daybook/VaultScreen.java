@@ -37,6 +37,8 @@ class VaultScreen extends Screen {
     private static final int MENU_REQUIRE_AUTH = 130;
     private static final int MENU_EXPORT = 131;
     private static final int MENU_LOCK = 132;
+    private static final int MENU_IMPORT = 133;
+    private static final int MENU_AUTOFILL = 134;
 
     private final Vault vault;
     private final View lockedPanel, openPanel;
@@ -209,7 +211,7 @@ class VaultScreen extends Screen {
         if (!vault.isOpen()) return;
         String q = search.getText().toString().trim().toLowerCase(Locale.getDefault());
         for (Vault.Login l : vault.logins()) {
-            if (q.isEmpty() || (l.title + " " + l.user + " " + l.notes).toLowerCase(Locale.getDefault()).contains(q)) {
+            if (q.isEmpty() || (l.title + " " + l.user + " " + l.url + " " + l.type + " " + l.notes).toLowerCase(Locale.getDefault()).contains(q)) {
                 rows.add(l);
             }
         }
@@ -229,17 +231,24 @@ class VaultScreen extends Screen {
         Toast.makeText(a, label + " copied", Toast.LENGTH_SHORT).show();
     }
 
-    /** Details: username and password with copy / show buttons. */
+    /** Details with copy / show buttons, depending on the item type. */
     private void show(final Vault.Login l) {
         LinearLayout box = Util.dialogBox(a);
-        if (!l.user.isEmpty()) {
-            box.addView(Util.label(a, "Username / ID"));
-            box.addView(valueRow(l.user, false, "Username"));
+        if (l.type.equals("Bank card")) {
+            if (!l.holder.isEmpty()) field(box, "Card holder", l.holder, false);
+            if (!l.number.isEmpty()) field(box, "Card number", l.number, true);
+            if (!l.expiry.isEmpty()) field(box, "Valid until", l.expiry, false);
+            if (!l.cvv.isEmpty()) field(box, "CVV / security code", l.cvv, true);
+            if (!l.pin.isEmpty()) field(box, "PIN", l.pin, true);
+        } else if (l.type.equals("Wi-Fi")) {
+            field(box, "Network password", l.password, true);
+        } else if (l.type.equals("Login")) {
+            if (!l.url.isEmpty()) field(box, "Website / app", l.url, false);
+            if (!l.user.isEmpty()) field(box, "Username / ID", l.user, false);
+            field(box, "Password", l.password, true);
         }
-        box.addView(Util.label(a, "Password"));
-        box.addView(valueRow(l.password, true, "Password"));
         if (!l.notes.isEmpty()) {
-            box.addView(Util.label(a, "Notes"));
+            box.addView(Util.label(a, l.type.equals("Secure note") ? "Note" : "Notes"));
             TextView notes = new TextView(a);
             notes.setText(l.notes);
             notes.setTextIsSelectable(true);
@@ -249,13 +258,22 @@ class VaultScreen extends Screen {
             box.addView(notes);
         }
         new AlertDialog.Builder(a)
-                .setTitle(l.title)
-                .setView(box)
+                .setTitle(icon(l) + "  " + l.title)
+                .setView(wrapScroll(box))
                 .setPositiveButton("Close", null)
                 .setNeutralButton("Edit", new DialogInterface.OnClickListener() {
                     public void onClick(DialogInterface d, int which) { edit(l); }
                 })
                 .show();
+    }
+
+    private void field(LinearLayout box, String label, String value, boolean secret) {
+        box.addView(Util.label(a, label));
+        box.addView(valueRow(value, secret, label));
+    }
+
+    static String icon(Vault.Login l) {
+        return l.type.equals("Bank card") ? "💳" : l.type.equals("Secure note") ? "📝" : l.type.equals("Wi-Fi") ? "📶" : "🔑";
     }
 
     private View valueRow(final String value, final boolean secret, final String label) {
@@ -289,42 +307,86 @@ class VaultScreen extends Screen {
         return row;
     }
 
+    private EditText input(LinearLayout box, String label, String value, String hint, int type) {
+        TextView lbl = Util.label(a, label);
+        box.addView(lbl);
+        EditText e = Util.field(a, value);
+        e.setHint(hint);
+        e.setInputType(type);
+        box.addView(e);
+        e.setTag(lbl);
+        return e;
+    }
+
+    private static void show(EditText e, boolean visible) {
+        e.setVisibility(visible ? View.VISIBLE : View.GONE);
+        ((View) e.getTag()).setVisibility(visible ? View.VISIBLE : View.GONE);
+    }
+
     private void edit(final Vault.Login l) {
         LinearLayout box = Util.dialogBox(a);
-        box.addView(Util.label(a, "Website or service"));
-        final EditText title = Util.field(a, l.title);
-        title.setHint("e.g. Facebook, Marriott Bonvoy");
-        title.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_WORDS);
-        box.addView(title);
-        box.addView(Util.label(a, "Username / email / membership ID"));
-        final EditText user = Util.field(a, l.user);
-        user.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS);
-        box.addView(user);
-        box.addView(Util.label(a, "Password"));
-        final EditText pass = Util.field(a, l.password);
-        pass.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD);
+        box.addView(Util.label(a, "Type"));
+        final android.widget.Spinner type = new android.widget.Spinner(a);
+        type.setAdapter(new android.widget.ArrayAdapter<String>(a, android.R.layout.simple_spinner_dropdown_item, Vault.TYPES));
+        type.setSelection(Math.max(0, java.util.Arrays.asList(Vault.TYPES).indexOf(l.type)));
+        box.addView(type);
+        int text = InputType.TYPE_CLASS_TEXT, words = text | InputType.TYPE_TEXT_FLAG_CAP_WORDS;
+        int secret = text | InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD, digits = InputType.TYPE_CLASS_NUMBER;
+        final EditText title = input(box, "Name", l.title, "e.g. Facebook, Marriott Bonvoy, Home Wi-Fi", words);
+        final EditText url = input(box, "Website or app (for autofill)", l.url, "e.g. facebook.com", text | InputType.TYPE_TEXT_VARIATION_URI);
+        final EditText user = input(box, "Username / email / membership ID", l.user, "", text | InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS);
+        final EditText pass = input(box, "Password", l.password, "", secret);
         pass.setTypeface(android.graphics.Typeface.MONOSPACE);
-        box.addView(pass);
-        Button gen = new Button(a, null, android.R.attr.borderlessButtonStyle);
+        final Button gen = new Button(a, null, android.R.attr.borderlessButtonStyle);
         gen.setText("Generate a strong password");
         gen.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) { pass.setText(Vault.generatePassword(16)); }
         });
         box.addView(gen);
-        box.addView(Util.label(a, "Notes"));
-        final EditText notes = Util.field(a, l.notes);
-        box.addView(notes);
+        final EditText holder = input(box, "Card holder", l.holder, "Name on the card", words);
+        final EditText number = input(box, "Card number", l.number, "", digits);
+        final EditText expiry = input(box, "Valid until", l.expiry, "MM/YY", text);
+        final EditText cvv = input(box, "CVV / security code", l.cvv, "", digits | InputType.TYPE_NUMBER_VARIATION_PASSWORD);
+        final EditText pin = input(box, "PIN", l.pin, "", digits | InputType.TYPE_NUMBER_VARIATION_PASSWORD);
+        final EditText notes = input(box, "Notes", l.notes, "", text | InputType.TYPE_TEXT_FLAG_MULTI_LINE | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
+        type.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
+            public void onItemSelected(android.widget.AdapterView<?> p, View v, int pos, long id) {
+                String t = Vault.TYPES[pos];
+                boolean login = t.equals("Login"), card = t.equals("Bank card"), wifi = t.equals("Wi-Fi");
+                show(url, login);
+                show(user, login);
+                show(pass, login || wifi);
+                gen.setVisibility(login || wifi ? View.VISIBLE : View.GONE);
+                show(holder, card);
+                show(number, card);
+                show(expiry, card);
+                show(cvv, card);
+                show(pin, card);
+                ((TextView) title.getTag()).setText(wifi ? "Network name" : card ? "Card name (bank)" : "Name");
+                ((TextView) notes.getTag()).setText(t.equals("Secure note") ? "Note" : "Notes");
+                notes.setMinLines(t.equals("Secure note") ? 6 : 1);
+            }
+
+            public void onNothingSelected(android.widget.AdapterView<?> p) {}
+        });
 
         AlertDialog.Builder b = new AlertDialog.Builder(a)
-                .setTitle(l.id == null ? "New password" : "Edit password")
+                .setTitle(l.id == null ? "New item" : "Edit")
                 .setView(wrapScroll(box))
                 .setPositiveButton("Save", new DialogInterface.OnClickListener() {
                     public void onClick(DialogInterface d, int which) {
                         if (!vault.isOpen()) return;
+                        l.type = Vault.TYPES[type.getSelectedItemPosition()];
                         String t = title.getText().toString().trim();
                         l.title = t.isEmpty() ? (l.title.isEmpty() ? "Untitled" : l.title) : t;
+                        l.url = url.getText().toString().trim();
                         l.user = user.getText().toString().trim();
                         l.password = pass.getText().toString();
+                        l.holder = holder.getText().toString().trim();
+                        l.number = number.getText().toString().replace(" ", "");
+                        l.expiry = expiry.getText().toString().trim();
+                        l.cvv = cvv.getText().toString().trim();
+                        l.pin = pin.getText().toString().trim();
                         l.notes = notes.getText().toString().trim();
                         run(new Op() {
                             public void run() throws Exception { vault.put(l); }
@@ -335,7 +397,7 @@ class VaultScreen extends Screen {
         if (l.id != null) {
             b.setNeutralButton("Delete", new DialogInterface.OnClickListener() {
                 public void onClick(DialogInterface d, int which) {
-                    Util.confirm(a, "Delete \"" + l.title + "\"?", "This password will be gone for good.", "Delete",
+                    Util.confirm(a, "Delete \"" + l.title + "\"?", "It will be gone for good.", "Delete",
                             new Runnable() {
                                 public void run() {
                                     VaultScreen.this.run(new Op() {
@@ -362,7 +424,9 @@ class VaultScreen extends Screen {
     void onCreateMenu(Menu menu) {
         menu.add(0, MENU_LOCK, 0, "Lock passwords now");
         menu.add(0, MENU_REQUIRE_AUTH, 1, "Require fingerprint").setCheckable(true);
-        menu.add(0, MENU_EXPORT, 2, "Export passwords (unencrypted)");
+        menu.add(0, MENU_IMPORT, 2, "Import from CSV (Chrome, Bitwarden…)");
+        menu.add(0, MENU_AUTOFILL, 3, "Use Doable for autofill…");
+        menu.add(0, MENU_EXPORT, 4, "Export passwords (unencrypted)");
     }
 
     @Override
@@ -371,6 +435,8 @@ class VaultScreen extends Screen {
         menu.findItem(MENU_LOCK).setVisible(open);
         menu.findItem(MENU_REQUIRE_AUTH).setVisible(open).setChecked(vault.exists() && vault.requiresAuth());
         menu.findItem(MENU_EXPORT).setVisible(open);
+        menu.findItem(MENU_IMPORT).setVisible(open);
+        menu.findItem(MENU_AUTOFILL).setVisible(android.os.Build.VERSION.SDK_INT >= 26);
     }
 
     @Override
@@ -379,6 +445,24 @@ class VaultScreen extends Screen {
         switch (id) {
             case MENU_LOCK:
                 lock();
+                return true;
+            case MENU_IMPORT:
+                a.openDocument(new String[]{"text/*", "text/csv", "text/comma-separated-values", "application/vnd.ms-excel"}, new MainActivity.UriPicked() {
+                    public void onUri(final android.net.Uri uri) {
+                        run(new Op() {
+                            public void run() throws Exception {
+                                int n = vault.importCsv(a.readText(uri));
+                                Toast.makeText(a, n == 0 ? "No new passwords found in that file" : n + " passwords imported", Toast.LENGTH_LONG).show();
+                                new AlertDialog.Builder(a).setTitle("Delete the CSV file")
+                                        .setMessage("The file you imported contains your passwords in plain text. Delete it from Downloads (or wherever it is) now.")
+                                        .setPositiveButton("OK", null).show();
+                            }
+                        });
+                    }
+                });
+                return true;
+            case MENU_AUTOFILL:
+                autofillSetup();
                 return true;
             case MENU_REQUIRE_AUTH:
                 final boolean want = !vault.requiresAuth();
@@ -421,6 +505,30 @@ class VaultScreen extends Screen {
         return false;
     }
 
+    @android.annotation.TargetApi(26)
+    private void autofillSetup() {
+        android.view.autofill.AutofillManager am = a.getSystemService(android.view.autofill.AutofillManager.class);
+        if (am != null && am.hasEnabledAutofillServices()) {
+            Toast.makeText(a, "Doable is already your autofill service", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        new AlertDialog.Builder(a).setTitle("Autofill with Doable")
+                .setMessage("Android will open its autofill setting. Choose \"Doable passwords\". Then, when you log in "
+                        + "to an app or website, tap the username field and choose \"Unlock Doable\" to fill it in after "
+                        + "your fingerprint. Tip: put the website or app name (e.g. facebook.com) on each login.")
+                .setPositiveButton("Open setting", new DialogInterface.OnClickListener() {
+                    public void onClick(DialogInterface d, int which) {
+                        try {
+                            a.startExternal(new android.content.Intent(android.provider.Settings.ACTION_REQUEST_SET_AUTOFILL_SERVICE)
+                                    .setData(android.net.Uri.parse("package:" + a.getPackageName())));
+                        } catch (RuntimeException e) {
+                            a.startExternal(new android.content.Intent(android.provider.Settings.ACTION_SETTINGS));
+                        }
+                    }
+                })
+                .setNegativeButton("Cancel", null).show();
+    }
+
     // ---------------------------------------------------------------- adapter
 
     private class RowAdapter extends BaseAdapter {
@@ -432,15 +540,24 @@ class VaultScreen extends Screen {
             if (view == null) view = LayoutInflater.from(parent.getContext()).inflate(R.layout.item_login, parent, false);
             final Vault.Login l = rows.get(position);
             TextView initial = (TextView) view.findViewById(R.id.initial);
-            initial.setText(l.title.isEmpty() ? "?" : l.title.substring(0, 1).toUpperCase(Locale.getDefault()));
+            initial.setText(!l.type.equals("Login") ? icon(l) : l.title.isEmpty() ? "?" : l.title.substring(0, 1).toUpperCase(Locale.getDefault()));
             GradientDrawable circle = new GradientDrawable();
             circle.setShape(GradientDrawable.OVAL);
             circle.setColor(Db.PALETTE[Math.abs(l.title.toLowerCase(Locale.getDefault()).hashCode()) % Db.PALETTE.length]);
             initial.setBackground(circle);
             ((TextView) view.findViewById(R.id.title)).setText(l.title);
-            ((TextView) view.findViewById(R.id.user)).setText(l.user.isEmpty() ? "No username" : l.user);
+            String sub = l.type.equals("Bank card") ? (l.number.length() > 4 ? "•••• " + l.number.substring(l.number.length() - 4) : "Bank card")
+                    + (l.expiry.isEmpty() ? "" : " · " + l.expiry)
+                    : l.type.equals("Secure note") ? "Secure note" : l.type.equals("Wi-Fi") ? "Wi-Fi password"
+                    : (l.user.isEmpty() ? "No username" : l.user) + (l.url.isEmpty() ? "" : " · " + Vault.host(l.url));
+            ((TextView) view.findViewById(R.id.user)).setText(sub);
+            final boolean copyable = !l.type.equals("Secure note");
+            view.findViewById(R.id.copy).setVisibility(copyable ? View.VISIBLE : View.INVISIBLE);
             view.findViewById(R.id.copy).setOnClickListener(new View.OnClickListener() {
-                public void onClick(View v) { copy("Password", l.password, true); }
+                public void onClick(View v) {
+                    if (l.type.equals("Bank card")) copy("Card number", l.number, true);
+                    else copy("Password", l.password, true);
+                }
             });
             return view;
         }

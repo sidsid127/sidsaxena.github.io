@@ -37,7 +37,10 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
-/** The to-do list: categories, priorities, due dates. */
+/**
+ * The to-do list: categories, priorities, due dates with reminder times, repeats, subtasks, smart views
+ * (Today, Upcoming, Calendar) and quick add in plain language.
+ */
 class TasksScreen extends Screen {
 
     private static final int MENU_SHOW_DONE = 100;
@@ -57,6 +60,12 @@ class TasksScreen extends Screen {
     private boolean showDone;
     private boolean grouped; // list is split into category sections (category label hidden on rows)
     private Db.Task dragging; // task being dragged by its handle
+    private String smart;     // "", "today", "upcoming" or "calendar"
+    private long calDay;      // selected day in the calendar
+    private final Calendar calMonth = Calendar.getInstance();
+    private Map<Long, int[]> subCounts = new HashMap<Long, int[]>();
+    private final TextView quickHint;
+    private final LinearLayout calendar;
 
     private final TextView summary;
     private final ListView list;
@@ -77,6 +86,10 @@ class TasksScreen extends Screen {
         selTop = a.prefs.getLong("selTop", 0);
         selSub = a.prefs.getLong("selSub", 0);
         showDone = a.prefs.getBoolean("showDone", false);
+        smart = a.prefs.getString("smart", "");
+        calDay = Util.startOfDay(System.currentTimeMillis());
+        calMonth.setTimeInMillis(calDay);
+        calMonth.set(Calendar.DAY_OF_MONTH, 1);
 
         summary = (TextView) root.findViewById(R.id.summary);
         list = (ListView) root.findViewById(R.id.list);
@@ -85,6 +98,13 @@ class TasksScreen extends Screen {
         subScroll = root.findViewById(R.id.sub_scroll);
         chipsTop = (LinearLayout) root.findViewById(R.id.chips_top);
         chipsSub = (LinearLayout) root.findViewById(R.id.chips_sub);
+        quickHint = (TextView) root.findViewById(R.id.quick_hint);
+        calendar = (LinearLayout) root.findViewById(R.id.calendar);
+        input.addTextChangedListener(new android.text.TextWatcher() {
+            public void beforeTextChanged(CharSequence x, int st, int c, int af) {}
+            public void onTextChanged(CharSequence x, int st, int b, int c) {}
+            public void afterTextChanged(android.text.Editable e) { updateQuickHint(); }
+        });
         TextView empty = (TextView) root.findViewById(R.id.empty);
         empty.setText(R.string.empty_tasks);
 
@@ -159,7 +179,16 @@ class TasksScreen extends Screen {
     private void selectFilter(long top, long sub) {
         selTop = top;
         selSub = sub;
-        a.prefs.edit().putLong("selTop", selTop).putLong("selSub", selSub).apply();
+        if (top != 0) smart = "";
+        a.prefs.edit().putLong("selTop", selTop).putLong("selSub", selSub).putString("smart", smart).apply();
+        reload();
+    }
+
+    private void selectSmart(String view) {
+        smart = smart.equals(view) ? "" : view;
+        selTop = 0;
+        selSub = 0;
+        a.prefs.edit().putLong("selTop", 0).putLong("selSub", 0).putString("smart", smart).apply();
         reload();
     }
 
@@ -167,10 +196,19 @@ class TasksScreen extends Screen {
         chipsTop.removeAllViews();
         chipsSub.removeAllViews();
 
-        chipsTop.addView(chip(a.getString(R.string.all), Util.color(a, R.color.primary), selTop == 0,
+        chipsTop.addView(chip(a.getString(R.string.all), Util.color(a, R.color.primary), selTop == 0 && smart.isEmpty(),
                 new View.OnClickListener() {
-                    public void onClick(View v) { selectFilter(0, 0); }
+                    public void onClick(View v) {
+                        smart = "";
+                        selectFilter(0, 0);
+                    }
                 }, null));
+        String[][] smarts = {{"today", "Today"}, {"upcoming", "Upcoming"}, {"calendar", "📅 Calendar"}};
+        for (final String[] sv : smarts) {
+            chipsTop.addView(chip(sv[1], 0xFF1E9C9A, smart.equals(sv[0]), new View.OnClickListener() {
+                public void onClick(View v) { selectSmart(sv[0]); }
+            }, null));
+        }
         for (final Db.Category k : categories) {
             if (k.parent != 0) continue;
             chipsTop.addView(chip(k.name, k.color, selTop == k.id, new View.OnClickListener() {
@@ -266,6 +304,10 @@ class TasksScreen extends Screen {
     }
 
     private boolean matchesFilter(Db.Task t) {
+        long today = Util.startOfDay(System.currentTimeMillis());
+        if (smart.equals("today") && (t.due == 0 || t.due > today)) return false;
+        if (smart.equals("upcoming") && (t.due <= today || Util.daysFromToday(t.due) > 7)) return false;
+        if (smart.equals("calendar") && t.due != calDay) return false;
         if (selTop == 0) return true;
         if (selSub != 0) return t.category == selSub;
         if (t.category == selTop) return true;
@@ -298,7 +340,9 @@ class TasksScreen extends Screen {
         loadCategories();
         buildChips();
         updateInputHint();
+        subCounts = st.subtaskCounts();
         rows.clear();
+        buildCalendar();
 
         long now = System.currentTimeMillis();
         long today = Util.startOfDay(now);
@@ -364,6 +408,9 @@ class TasksScreen extends Screen {
         if (high > 0) s.append(" · ").append(high).append(" high priority");
         if (overdue > 0) s.append(" · ").append(overdue).append(" overdue");
         if (hiddenDone > 0) s.append(" · ").append(hiddenDone).append(" older completed hidden");
+        if (smart.equals("today")) s.insert(0, "Today and overdue · ");
+        else if (smart.equals("upcoming")) s.insert(0, "Next 7 days · ");
+        else if (smart.equals("calendar")) s.insert(0, Util.dayLabel(calDay) + " · ");
         summary.setText(s);
         adapter.notifyDataSetChanged();
     }
@@ -373,15 +420,153 @@ class TasksScreen extends Screen {
     private void addFromInput() {
         String text = input.getText().toString().trim();
         if (text.isEmpty()) return;
-        db.addTask(text, pendingDue, selSub != 0 ? selSub : selTop, 0);
+        QuickAdd.Result q = QuickAdd.parse(text, System.currentTimeMillis());
+        Db.Task t = new Db.Task();
+        t.title = q.title;
+        t.due = q.due != 0 ? q.due : pendingDue != 0 ? pendingDue : smart.equals("calendar") ? calDay
+                : smart.equals("today") ? Util.startOfDay(System.currentTimeMillis()) : 0;
+        t.time = q.time;
+        t.priority = Math.max(0, q.priority);
+        t.repeat = q.repeat;
+        long cat = q.category != null ? findCategory(q.category) : 0;
+        t.category = cat != 0 ? cat : selSub != 0 ? selSub : selTop;
+        db.saveTask(t);
+        if (t.time >= 0) a.ensureNotifications();
         pendingDue = 0;
         input.setText("");
         reload();
         list.setSelection(0);
+        Reminders.refresh(a);
+    }
+
+    /** Category id for a "#name" (sub-categories first, ignoring case and spaces); 0 if none matches. */
+    private long findCategory(String name) {
+        String key = name.replace(" ", "").toLowerCase(Locale.getDefault());
+        long best = 0;
+        for (Db.Category k : categories) {
+            String n = k.name.replace(" ", "").toLowerCase(Locale.getDefault());
+            if (n.equals(key)) return k.id;
+            if (best == 0 && n.startsWith(key)) best = k.id;
+        }
+        return best;
+    }
+
+    /** Shows what quick add understood, e.g. "📅 Tomorrow · 🕘 09:00 · #Work · ⚑ High". */
+    private void updateQuickHint() {
+        String text = input.getText().toString().trim();
+        QuickAdd.Result q = text.isEmpty() ? null : QuickAdd.parse(text, System.currentTimeMillis());
+        if (q == null || !q.any()) {
+            quickHint.setVisibility(View.GONE);
+            return;
+        }
+        StringBuilder sb = new StringBuilder("“" + q.title + "”");
+        if (q.due != 0) sb.append("  ·  📅 ").append(Util.dayLabel(q.due));
+        if (q.time >= 0) sb.append("  ·  🔔 ").append(clock(q.time));
+        if (!q.repeat.isEmpty()) sb.append("  ·  🔁 ").append(Recurrence.label(q.repeat));
+        if (q.category != null) {
+            long id = findCategory(q.category);
+            sb.append("  ·  ").append(id != 0 ? "● " + categoryPath(id) : "#" + q.category + " (no such category)");
+        }
+        if (q.priority > 0) sb.append("  ·  ⚑ ").append(PRIORITY_NAMES[q.priority]);
+        quickHint.setText(sb);
+        quickHint.setVisibility(View.VISIBLE);
+    }
+
+    static String clock(int minutes) {
+        return String.format(Locale.getDefault(), "%02d:%02d", minutes / 60, minutes % 60);
+    }
+
+    // ---------------------------------------------------------------- calendar
+
+    private void buildCalendar() {
+        calendar.removeAllViews();
+        if (!smart.equals("calendar")) {
+            calendar.setVisibility(View.GONE);
+            return;
+        }
+        calendar.setVisibility(View.VISIBLE);
+        // Days with open tasks get a dot.
+        java.util.Set<Long> busy = new java.util.HashSet<Long>();
+        for (Db.Task t : db.tasks()) if (!t.done && t.due != 0) busy.add(t.due);
+
+        LinearLayout head = new LinearLayout(a);
+        head.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        TextView prev = calText("‹", 22, true), next = calText("›", 22, true);
+        TextView month = calText(new java.text.SimpleDateFormat("MMMM yyyy", Locale.getDefault()).format(calMonth.getTime()), 16, true);
+        month.setGravity(android.view.Gravity.CENTER);
+        prev.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                calMonth.add(Calendar.MONTH, -1);
+                reload();
+            }
+        });
+        next.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                calMonth.add(Calendar.MONTH, 1);
+                reload();
+            }
+        });
+        head.addView(prev, new LinearLayout.LayoutParams(Util.dp(a, 48), Util.dp(a, 40)));
+        head.addView(month, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        head.addView(next, new LinearLayout.LayoutParams(Util.dp(a, 48), Util.dp(a, 40)));
+        calendar.addView(head);
+
+        Calendar c = (Calendar) calMonth.clone();
+        int firstDow = c.getFirstDayOfWeek();
+        LinearLayout names = new LinearLayout(a);
+        Calendar n = Calendar.getInstance();
+        for (int i = 0; i < 7; i++) {
+            n.set(Calendar.DAY_OF_WEEK, (firstDow - 1 + i) % 7 + 1);
+            TextView t = calText(new java.text.SimpleDateFormat("EEEEE", Locale.getDefault()).format(n.getTime()), 11, false);
+            t.setTextColor(Util.color(a, R.color.muted));
+            names.addView(t, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        }
+        calendar.addView(names);
+
+        int offset = (c.get(Calendar.DAY_OF_WEEK) - firstDow + 7) % 7;
+        c.add(Calendar.DAY_OF_MONTH, -offset);
+        long today = Util.startOfDay(System.currentTimeMillis());
+        for (int week = 0; week < 6; week++) {
+            LinearLayout row = new LinearLayout(a);
+            for (int d = 0; d < 7; d++) {
+                final long day = Util.startOfDay(c.getTimeInMillis());
+                boolean inMonth = c.get(Calendar.MONTH) == calMonth.get(Calendar.MONTH);
+                TextView t = calText(c.get(Calendar.DAY_OF_MONTH) + (busy.contains(day) ? "\n•" : "\n "), 14, day == calDay);
+                t.setLineSpacing(0, 0.8f);
+                t.setTextColor(day == calDay ? 0xFFFFFFFF : Util.color(a, inMonth ? (day == today ? R.color.primary_text : R.color.text) : R.color.prio_none));
+                if (day == calDay) {
+                    android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+                    bg.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+                    bg.setColor(Util.color(a, R.color.primary));
+                    t.setBackground(bg);
+                }
+                t.setOnClickListener(new View.OnClickListener() {
+                    public void onClick(View v) {
+                        calDay = day;
+                        reload();
+                    }
+                });
+                row.addView(t, new LinearLayout.LayoutParams(0, Util.dp(a, 42), 1));
+                c.add(Calendar.DAY_OF_MONTH, 1);
+            }
+            calendar.addView(row);
+            if (c.get(Calendar.MONTH) != calMonth.get(Calendar.MONTH) && week >= 3) break;
+        }
+    }
+
+    private TextView calText(String s, int sp, boolean bold) {
+        TextView t = new TextView(a);
+        t.setText(s);
+        t.setTextSize(sp);
+        t.setGravity(android.view.Gravity.CENTER);
+        t.setTextColor(Util.color(a, R.color.text));
+        if (bold) t.setTypeface(t.getTypeface(), android.graphics.Typeface.BOLD);
+        return t;
     }
 
     private void editTask(final Db.Task task) {
         final long[] due = {task.due};
+        final int[] time = {task.time};
         LinearLayout box = Util.dialogBox(a);
         final EditText field = Util.field(a, task.title);
         box.addView(field);
@@ -422,16 +607,91 @@ class TasksScreen extends Screen {
         });
         box.addView(dueButton);
 
+        box.addView(Util.label(a, "Reminder"));
+        final Button timeButton = new Button(a, null, android.R.attr.borderlessButtonStyle);
+        timeButton.setText(task.time >= 0 ? "🔔 " + clock(task.time) : "No reminder");
+        timeButton.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                int cur = time[0] >= 0 ? time[0] : 9 * 60;
+                android.app.TimePickerDialog tp = new android.app.TimePickerDialog(a, new android.app.TimePickerDialog.OnTimeSetListener() {
+                    public void onTimeSet(android.widget.TimePicker view, int h, int m) {
+                        time[0] = h * 60 + m;
+                        if (due[0] == 0) {
+                            due[0] = Util.startOfDay(System.currentTimeMillis());
+                            dueButton.setText(Util.dueLabel(due[0]));
+                        }
+                        timeButton.setText("🔔 " + clock(time[0]));
+                    }
+                }, cur / 60, cur % 60, android.text.format.DateFormat.is24HourFormat(a));
+                tp.setButton(DialogInterface.BUTTON_NEUTRAL, "No reminder", new DialogInterface.OnClickListener() {
+                    public void onClick(DialogInterface d, int which) {
+                        time[0] = -1;
+                        timeButton.setText("No reminder");
+                    }
+                });
+                tp.show();
+            }
+        });
+        box.addView(timeButton);
+
+        box.addView(Util.label(a, "Repeat"));
+        final Spinner repeat = new Spinner(a);
+        List<String> repeatLabels = new ArrayList<String>(java.util.Arrays.asList(Recurrence.LABELS));
+        final List<String> repeatRules = new ArrayList<String>(java.util.Arrays.asList(Recurrence.RULES));
+        if (!repeatRules.contains(task.repeat)) {
+            repeatRules.add(task.repeat);
+            repeatLabels.add(Recurrence.label(task.repeat));
+        }
+        repeat.setAdapter(new ArrayAdapter<String>(a, android.R.layout.simple_spinner_dropdown_item, repeatLabels));
+        repeat.setSelection(repeatRules.indexOf(task.repeat));
+        box.addView(repeat);
+
+        box.addView(Util.label(a, "Subtasks"));
+        final List<Store.Subtask> subs = task.id == 0 ? new ArrayList<Store.Subtask>() : st.subtasks(task.id);
+        final LinearLayout subBox = new LinearLayout(a);
+        subBox.setOrientation(LinearLayout.VERTICAL);
+        box.addView(subBox);
+        renderSubtasks(subBox, subs);
+        Button addSub = new Button(a, null, android.R.attr.borderlessButtonStyle);
+        addSub.setText("+ Add subtask");
+        addSub.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                subs.add(new Store.Subtask());
+                renderSubtasks(subBox, subs);
+                View last = subBox.getChildAt(subBox.getChildCount() - 1);
+                if (last != null) Util.showKeyboard((EditText) last.findViewWithTag("text"));
+            }
+        });
+        box.addView(addSub);
+
+        box.addView(Util.label(a, "Notes"));
+        final EditText notes = Util.field(a, task.notes);
+        notes.setHint("Details, links, phone numbers…");
+        box.addView(notes);
+
+        android.widget.ScrollView scroll = new android.widget.ScrollView(a);
+        scroll.addView(box);
         new AlertDialog.Builder(a)
                 .setTitle("Edit task")
-                .setView(box)
+                .setView(scroll)
                 .setPositiveButton("Save", new DialogInterface.OnClickListener() {
                     public void onClick(DialogInterface d, int which) {
                         String t = field.getText().toString().trim();
-                        if (t.isEmpty()) t = task.title;
-                        db.updateTask(task.id, t, due[0], catIds.get(catSpinner.getSelectedItemPosition()),
-                                prioSpinner.getSelectedItemPosition());
+                        if (!t.isEmpty()) task.title = t;
+                        int newTime = due[0] == 0 ? -1 : time[0];
+                        if (task.time != newTime || task.due != due[0]) task.snooze = 0; // a new time replaces a snooze
+                        task.due = due[0];
+                        task.time = newTime;
+                        task.category = catIds.get(catSpinner.getSelectedItemPosition());
+                        task.priority = prioSpinner.getSelectedItemPosition();
+                        task.repeat = repeatRules.get(repeat.getSelectedItemPosition());
+                        if (!task.repeat.isEmpty() && task.due == 0) task.due = Util.startOfDay(System.currentTimeMillis());
+                        task.notes = notes.getText().toString().trim();
+                        db.saveTask(task);
+                        st.replaceSubtasks(task.id, subs);
+                        if (task.time >= 0) a.ensureNotifications();
                         reload();
+                        Reminders.refresh(a);
                     }
                 })
                 .setNeutralButton("Delete", new DialogInterface.OnClickListener() {
@@ -441,13 +701,67 @@ class TasksScreen extends Screen {
                 .show();
     }
 
+    private void renderSubtasks(final LinearLayout box, final List<Store.Subtask> subs) {
+        box.removeAllViews();
+        for (final Store.Subtask sub : subs) {
+            LinearLayout row = new LinearLayout(a);
+            row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+            final CheckBox cb = new CheckBox(a);
+            cb.setChecked(sub.done);
+            cb.setOnClickListener(new View.OnClickListener() {
+                public void onClick(View v) { sub.done = cb.isChecked(); }
+            });
+            row.addView(cb);
+            final EditText et = Util.field(a, sub.text);
+            et.setTag("text");
+            et.setHint("Subtask");
+            et.addTextChangedListener(new android.text.TextWatcher() {
+                public void beforeTextChanged(CharSequence x, int s1, int c, int af) {}
+                public void onTextChanged(CharSequence x, int s1, int b, int c) {}
+                public void afterTextChanged(android.text.Editable e) { sub.text = e.toString(); }
+            });
+            row.addView(et, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+            TextView del = new TextView(a);
+            del.setText("✕");
+            del.setPadding(Util.dp(a, 12), Util.dp(a, 8), Util.dp(a, 4), Util.dp(a, 8));
+            del.setTextColor(Util.color(a, R.color.muted));
+            del.setOnClickListener(new View.OnClickListener() {
+                public void onClick(View v) {
+                    subs.remove(sub);
+                    renderSubtasks(box, subs);
+                }
+            });
+            row.addView(del);
+            box.addView(row);
+        }
+    }
+
     private void confirmDelete(final Db.Task task) {
         Util.confirm(a, "Delete?", task.title, "Delete", new Runnable() {
             public void run() {
-                db.deleteTask(task.id);
+                TaskOps.delete(db, task.id);
                 reload();
+                Reminders.refresh(a);
             }
         });
+    }
+
+    @Override
+    void open(long id) {
+        Db.Task t = db.task(id);
+        if (t != null) editTask(t);
+    }
+
+    @Override
+    void quick(String what) {
+        Util.showKeyboard(input);
+    }
+
+    /** Text shared from another app: put it in the quick-add field so date words are recognised. */
+    void prefill(String text) {
+        input.setText(text);
+        input.setSelection(input.length());
+        Util.showKeyboard(input);
     }
 
     private void choosePriority(final Db.Task t) {
@@ -651,6 +965,15 @@ class TasksScreen extends Screen {
             TextView title = (TextView) view.findViewById(R.id.title);
             TextView due = (TextView) view.findViewById(R.id.due);
             TextView cat = (TextView) view.findViewById(R.id.category);
+            TextView extras = (TextView) view.findViewById(R.id.extras);
+            StringBuilder ex = new StringBuilder();
+            if (!t.done && t.time >= 0) ex.append("🔔 ").append(clock(t.time)).append("  ");
+            if (!t.repeat.isEmpty()) ex.append("🔁  ");
+            int[] sc = subCounts.get(t.id);
+            if (sc != null) ex.append("☑ ").append(sc[0]).append('/').append(sc[1]).append("  ");
+            if (!t.notes.isEmpty()) ex.append("📝");
+            extras.setText(ex.toString().trim());
+            extras.setVisibility(ex.length() == 0 ? View.GONE : View.VISIBLE);
             View prio = view.findViewById(R.id.prio);
             ImageView prioIcon = (ImageView) view.findViewById(R.id.prio_icon);
             TextView prioLabel = (TextView) view.findViewById(R.id.prio_label);
@@ -666,8 +989,9 @@ class TasksScreen extends Screen {
             check.setChecked(t.done);
             check.setOnClickListener(new View.OnClickListener() {
                 public void onClick(View v) {
-                    db.setDone(t.id, ((CheckBox) v).isChecked());
+                    TaskOps.setDone(db, t, ((CheckBox) v).isChecked());
                     reload();
+                    Reminders.refresh(a);
                 }
             });
 
@@ -686,6 +1010,7 @@ class TasksScreen extends Screen {
                     pickDate(t.due, new DatePicked() {
                         public void onPicked(long day) {
                             db.setDue(t.id, day);
+                            Reminders.refresh(a);
                             reload();
                         }
                     });

@@ -35,7 +35,7 @@ public class Files extends ContentProvider {
         if (seg.size() == 1 && seg.get(0).equals("capture.jpg")) {
             return new File(getContext().getFilesDir(), "capture.jpg");
         }
-        if (seg.size() == 2 && seg.get(0).equals("att") && seg.get(1).matches("[A-Za-z0-9-]+\\.(jpg|pdf)")) {
+        if (seg.size() == 2 && seg.get(0).equals("att") && seg.get(1).matches("[A-Za-z0-9-]+\\.(jpg|pdf|m4a|csv|txt)")) {
             return Attachments.file(getContext(), seg.get(1));
         }
         throw new FileNotFoundException(uri.toString());
@@ -48,7 +48,12 @@ public class Files extends ContentProvider {
 
     @Override
     public String getType(Uri uri) {
-        return uri.getPath().endsWith(".pdf") ? "application/pdf" : "image/jpeg";
+        String p = uri.getPath();
+        if (p.endsWith(".pdf")) return "application/pdf";
+        if (p.endsWith(".m4a")) return "audio/mp4";
+        if (p.endsWith(".csv")) return "text/csv";
+        if (p.endsWith(".txt")) return "text/plain";
+        return "image/jpeg";
     }
 
     @Override

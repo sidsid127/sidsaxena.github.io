@@ -30,6 +30,14 @@ class DiaryScreen extends Screen {
 
     private static final int MENU_BOOK = 140;
     private static final int MENU_SHARE = 141;
+    private static final int MENU_REMIND = 144;
+
+    static final String[] WEATHER = {"☀️", "🌤", "☁️", "🌧", "⛈", "❄️", "🌫", "💨"};
+    private static final String[] WEATHER_NAMES = {"Sunny", "Partly cloudy", "Cloudy", "Rain", "Storm", "Snow", "Fog", "Windy"};
+    private TextView placeView;
+    private LinearLayout weatherRow;
+    private EditText tempField;
+    private String weather = "";
     private static final int MENU_DELETE = 142;
     private static final int MENU_DATE = 143;
 
@@ -60,6 +68,7 @@ class DiaryScreen extends Screen {
         lows = (EditText) root.findViewById(R.id.lows);
         moods = (LinearLayout) root.findViewById(R.id.moods);
         photos = new AttachmentStrip(a, "Add photo");
+        buildPlaceAndWeather();
         ((FrameLayout) root.findViewById(R.id.photos)).addView(photos.view);
         list.setAdapter(adapter);
         list.setEmptyView(root.findViewById(R.id.empty));
@@ -177,6 +186,181 @@ class DiaryScreen extends Screen {
 
     // ---------------------------------------------------------------- editor
 
+    @Override
+    void open(long id) {
+        if (id > 0) openDay(Util.startOfDay(id));
+    }
+
+    @Override
+    void quick(String what) {
+        openDay(Util.startOfDay(System.currentTimeMillis()));
+    }
+
+    /** Place (from GPS, or typed) and weather (one tap) under the mood row. */
+    private void buildPlaceAndWeather() {
+        LinearLayout parent = (LinearLayout) moods.getParent();
+        int at = parent.indexOfChild(moods) + 1;
+        TextView label = new TextView(a);
+        label.setText("WHERE & WEATHER");
+        label.setTextSize(12);
+        label.setTypeface(label.getTypeface(), android.graphics.Typeface.BOLD);
+        label.setTextColor(Util.color(a, R.color.muted));
+        label.setPadding(0, Util.dp(a, 18), 0, Util.dp(a, 6));
+        parent.addView(label, at++);
+        placeView = new TextView(a);
+        placeView.setTextSize(15);
+        placeView.setTextColor(Util.color(a, R.color.primary_text));
+        placeView.setPadding(0, Util.dp(a, 6), 0, Util.dp(a, 6));
+        placeView.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) { placeOptions(); }
+        });
+        parent.addView(placeView, at++);
+        android.widget.HorizontalScrollView hs = new android.widget.HorizontalScrollView(a);
+        hs.setHorizontalScrollBarEnabled(false);
+        weatherRow = new LinearLayout(a);
+        hs.addView(weatherRow);
+        parent.addView(hs, at++);
+        tempField = new EditText(a);
+        tempField.setHint("Temperature, e.g. 18°");
+        tempField.setTextSize(15);
+        tempField.setSingleLine(true);
+        tempField.setTextColor(Util.color(a, R.color.text));
+        tempField.setHintTextColor(Util.color(a, R.color.muted));
+        parent.addView(tempField, at);
+    }
+
+    private void paintPlace() {
+        placeView.setText(open.place.isEmpty() ? "📍 Add location" : "📍 " + open.place + "   ✎");
+    }
+
+    private void paintWeather() {
+        weatherRow.removeAllViews();
+        for (int i = 0; i < WEATHER.length; i++) {
+            final String w = WEATHER[i];
+            TextView c = Util.chip(a, w + " " + WEATHER_NAMES[i], Util.color(a, R.color.primary), w.equals(weather));
+            c.setOnClickListener(new View.OnClickListener() {
+                public void onClick(View v) {
+                    weather = weather.equals(w) ? "" : w;
+                    paintWeather();
+                }
+            });
+            weatherRow.addView(c);
+        }
+    }
+
+    private void placeOptions() {
+        new android.app.AlertDialog.Builder(a).setItems(new String[]{"Use my current location", "Type a place", "Remove location"},
+                new android.content.DialogInterface.OnClickListener() {
+                    public void onClick(android.content.DialogInterface d, int which) {
+                        if (which == 0) {
+                            a.withPermission(android.Manifest.permission.ACCESS_COARSE_LOCATION,
+                                    "Doable uses your location only to tag this diary entry.", new Runnable() {
+                                        public void run() { locate(); }
+                                    });
+                        } else if (which == 1) {
+                            Util.prompt(a, "Where were you?", open.place, "e.g. Munich, Lisbon old town", "Save", new Util.TextEntered() {
+                                public void onText(String text) {
+                                    open.place = text;
+                                    paintPlace();
+                                }
+                            });
+                        } else {
+                            open.place = "";
+                            open.lat = 0;
+                            open.lon = 0;
+                            paintPlace();
+                        }
+                    }
+                }).show();
+    }
+
+    /** Last known position from the phone (no internet needed), turned into a place name where possible. */
+    @SuppressWarnings({"MissingPermission", "deprecation"})
+    private void locate() {
+        android.location.LocationManager lm = (android.location.LocationManager) a.getSystemService(android.content.Context.LOCATION_SERVICE);
+        android.location.Location best = null;
+        for (String p : lm.getProviders(true)) {
+            android.location.Location l = lm.getLastKnownLocation(p);
+            if (l != null && (best == null || l.getTime() > best.getTime())) best = l;
+        }
+        if (best != null && System.currentTimeMillis() - best.getTime() < 30 * 60 * 1000) {
+            usePosition(best);
+            return;
+        }
+        String provider = lm.isProviderEnabled(android.location.LocationManager.NETWORK_PROVIDER)
+                ? android.location.LocationManager.NETWORK_PROVIDER : android.location.LocationManager.GPS_PROVIDER;
+        if (!lm.isProviderEnabled(provider)) {
+            if (best != null) usePosition(best);
+            else Toast.makeText(a, "Turn on location in the phone's quick settings", Toast.LENGTH_LONG).show();
+            return;
+        }
+        Toast.makeText(a, "Finding your location…", Toast.LENGTH_SHORT).show();
+        lm.requestSingleUpdate(provider, new android.location.LocationListener() {
+            public void onLocationChanged(android.location.Location l) { usePosition(l); }
+            public void onStatusChanged(String p, int status, android.os.Bundle extras) {}
+            public void onProviderEnabled(String p) {}
+            public void onProviderDisabled(String p) {}
+        }, android.os.Looper.getMainLooper());
+    }
+
+    private void usePosition(final android.location.Location l) {
+        if (open == null) return;
+        final Db.Diary target = open;
+        target.lat = l.getLatitude();
+        target.lon = l.getLongitude();
+        target.place = String.format(Locale.US, "%.4f, %.4f", l.getLatitude(), l.getLongitude());
+        paintPlace();
+        if (!android.location.Geocoder.isPresent()) return;
+        new Thread(new Runnable() {
+            public void run() {
+                try {
+                    List<android.location.Address> list = new android.location.Geocoder(a, Locale.getDefault())
+                            .getFromLocation(l.getLatitude(), l.getLongitude(), 1);
+                    if (list == null || list.isEmpty()) return;
+                    android.location.Address ad = list.get(0);
+                    final String name = (ad.getLocality() != null ? ad.getLocality() : ad.getSubAdminArea() != null ? ad.getSubAdminArea() : "")
+                            + (ad.getCountryName() != null ? ", " + ad.getCountryName() : "");
+                    if (name.replace(",", "").trim().isEmpty()) return;
+                    a.runOnUiThread(new Runnable() {
+                        public void run() {
+                            target.place = name.startsWith(", ") ? name.substring(2) : name;
+                            if (open == target) paintPlace();
+                        }
+                    });
+                } catch (Exception ignored) {
+                    // no place name available offline: keep the coordinates
+                }
+            }
+        }).start();
+    }
+
+    private void reminderSettings() {
+        final int cur = Reminders.diaryTime(a);
+        new android.app.AlertDialog.Builder(a).setTitle("Daily diary reminder")
+                .setMessage(cur >= 0 ? "On, every day at " + TasksScreen.clock(cur) + " (skipped when you've already written)." : "Off")
+                .setPositiveButton(cur >= 0 ? "Change time" : "Turn on", new android.content.DialogInterface.OnClickListener() {
+                    public void onClick(android.content.DialogInterface d, int which) {
+                        int t = cur >= 0 ? cur : 21 * 60;
+                        new android.app.TimePickerDialog(a, new android.app.TimePickerDialog.OnTimeSetListener() {
+                            public void onTimeSet(android.widget.TimePicker v, int h, int m) {
+                                a.prefs.edit().putInt("diaryRemind", h * 60 + m).apply();
+                                a.ensureNotifications();
+                                Reminders.refresh(a);
+                                Toast.makeText(a, "Reminder every day at " + TasksScreen.clock(h * 60 + m), Toast.LENGTH_SHORT).show();
+                            }
+                        }, t / 60, t % 60, android.text.format.DateFormat.is24HourFormat(a)).show();
+                    }
+                })
+                .setNegativeButton(cur >= 0 ? "Turn off" : "Cancel", new android.content.DialogInterface.OnClickListener() {
+                    public void onClick(android.content.DialogInterface d, int which) {
+                        if (cur < 0) return;
+                        a.prefs.edit().putInt("diaryRemind", -1).apply();
+                        Reminders.refresh(a);
+                        Toast.makeText(a, "Diary reminder off", Toast.LENGTH_SHORT).show();
+                    }
+                }).show();
+    }
+
     private void openDay(long day) {
         Db.Diary d = db.diaryFor(day);
         if (d == null) {
@@ -193,6 +377,10 @@ class DiaryScreen extends Screen {
         highs.setText(d.highs);
         lows.setText(d.lows);
         photos.load("diary", d.id);
+        weather = d.weather;
+        tempField.setText(d.temp);
+        paintPlace();
+        paintWeather();
         paintDate();
         paintMoods();
         listPanel.setVisibility(View.GONE);
@@ -226,6 +414,8 @@ class DiaryScreen extends Screen {
         open.text = text.getText().toString();
         open.highs = highs.getText().toString();
         open.lows = lows.getText().toString();
+        open.weather = weather;
+        open.temp = tempField.getText().toString().trim();
         if (open.isEmpty() && photos.count() == 0) {
             if (open.id != 0) {
                 Attachments.delete(a, db.deleteDiaryWithFiles(open.id));
@@ -280,6 +470,7 @@ class DiaryScreen extends Screen {
         menu.add(0, MENU_DELETE, 1, "Delete this entry");
         menu.add(0, MENU_BOOK, 2, "Export diary as a book (PDF)");
         menu.add(0, MENU_SHARE, 3, "Share diary as text");
+        menu.add(0, MENU_REMIND, 4, "Daily reminder…");
     }
 
     @Override
@@ -313,6 +504,9 @@ class DiaryScreen extends Screen {
                 return true;
             case MENU_BOOK:
                 exportBook();
+                return true;
+            case MENU_REMIND:
+                reminderSettings();
                 return true;
             case MENU_SHARE:
                 a.shareText("My Diary", exportText());
@@ -367,6 +561,10 @@ class DiaryScreen extends Screen {
             if (!d.text.trim().isEmpty()) h.append("<p>").append(Report.para(d.text)).append("</p>");
             if (!d.highs.trim().isEmpty()) h.append("<h3>☀ Highlights</h3><p>").append(Report.para(d.highs)).append("</p>");
             if (!d.lows.trim().isEmpty()) h.append("<h3>☁ Lowlights</h3><p>").append(Report.para(d.lows)).append("</p>");
+            if (!d.place.isEmpty() || !d.weather.isEmpty()) {
+                h.append("<p class='muted'>").append(d.place.isEmpty() ? "" : "📍 " + Report.esc(d.place) + "  ")
+                        .append(d.weather).append(d.temp.isEmpty() ? "" : " " + Report.esc(d.temp)).append("</p>");
+            }
             h.append(Report.photos(db.attachments("diary", d.id)));
             h.append("</div>");
         }
@@ -390,7 +588,8 @@ class DiaryScreen extends Screen {
             int pics = db.attachmentCount("diary", d.id);
             ((TextView) view.findViewById(R.id.title)).setText(Util.dayLabel(d.day) + (pics > 0 ? "   📷 " + pics : ""));
             ((TextView) view.findViewById(R.id.preview)).setText(preview(d));
-            ((TextView) view.findViewById(R.id.mood)).setText(MOODS[d.mood]);
+            ((TextView) view.findViewById(R.id.mood)).setText(MOODS[d.mood] + d.weather);
+            if (!d.place.isEmpty()) ((TextView) view.findViewById(R.id.preview)).setText("📍 " + d.place + " · " + preview(d));
             return view;
         }
     }

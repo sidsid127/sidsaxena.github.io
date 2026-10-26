@@ -46,15 +46,16 @@ class TripsScreen extends Screen {
 
     static final String[] EXPENSE_CATS = {"Taxi / Uber", "Hotel", "Breakfast", "Lunch", "Dinner", "Client meal",
             "Flight", "Train", "Public transport", "Car rental / fuel", "Parking", "Phone / internet",
-            "Food & drinks", "Sightseeing", "Shopping", "Other"};
+            "Food & drinks", "Sightseeing", "Shopping", "Mileage (own car)", "Other"};
     private static final String[] EXPENSE_EMOJI = {"🚕", "🏨", "🥐", "🥪", "🍽", "🤝", "✈", "🚆", "🚇", "⛽", "🅿",
-            "📶", "🍹", "🎟", "🛍", "🧾"};
+            "📶", "🍹", "🎟", "🛍", "🚗", "🧾"};
+    static final String MILEAGE = "Mileage (own car)";
     private static final String[] PAYMENTS = {"Company card", "Personal card", "Cash", "Other"};
     private static final String[] BOOKING_TYPES = {"Stay", "Flight", "Train", "Bus", "Car", "Pass", "Ticket", "Other"};
     private static final String[] BOOKING_EMOJI = {"🏨", "✈", "🚆", "🚌", "🚗", "🎫", "🎟", "📄"};
 
     private static final String TAB_EXPENSES = "Expenses", TAB_BOOKINGS = "Bookings & passes",
-            TAB_NOTES = "Notes", TAB_PLAN = "Places to go", TAB_JOURNAL = "Journal";
+            TAB_NOTES = "Notes", TAB_PLAN = "Places to go", TAB_JOURNAL = "Journal", TAB_PACKING = "Packing list";
 
     private final View listPanel, detailPanel;
     private final LinearLayout tripsList, tabs, content;
@@ -63,6 +64,7 @@ class TripsScreen extends Screen {
 
     private Db.Trip trip;   // open trip, null while showing the list
     private String tab;
+    private List<String> sharedFiles; // receipts shared from another app, for the next new expense
 
     TripsScreen(MainActivity activity) {
         super(activity, R.layout.screen_trips);
@@ -146,6 +148,42 @@ class TripsScreen extends Screen {
     }
 
     /** Totals per currency, e.g. "640.00 EUR + 120.00 USD". */
+    private Map<String, Double> rates(Db.Expense e) {
+        return TripMath.rates(e.tripRates != null ? e.tripRates : trip != null ? trip.rates : "");
+    }
+
+    private String homeOf(Db.Expense e) {
+        return e.tripHome != null ? e.tripHome : trip != null ? trip.currency : "EUR";
+    }
+
+    /** Amount in the trip's home currency, -1 if no exchange rate is set for that currency. */
+    private long home(Db.Expense e) {
+        return TripMath.toHome(e.cents, e.currency, homeOf(e), rates(e));
+    }
+
+    /** "1,234.50 EUR" in the home currency(ies), with a note for amounts that have no rate yet. */
+    private String homeTotal(List<Db.Expense> list) {
+        Map<String, Long> sums = new LinkedHashMap<String, Long>();
+        List<Db.Expense> missing = new ArrayList<Db.Expense>();
+        for (Db.Expense e : list) {
+            long h = home(e);
+            if (h < 0) {
+                missing.add(e);
+                continue;
+            }
+            String cur = homeOf(e);
+            sums.put(cur, (sums.containsKey(cur) ? sums.get(cur) : 0L) + h);
+        }
+        StringBuilder sb = new StringBuilder();
+        for (Map.Entry<String, Long> en : sums.entrySet()) {
+            if (sb.length() > 0) sb.append(" + ");
+            sb.append(money(en.getValue(), en.getKey()));
+        }
+        if (sb.length() == 0) sb.append(money(0, trip != null ? trip.currency : "EUR"));
+        if (!missing.isEmpty()) sb.append(" + ").append(totals(missing)).append(" (no rate)");
+        return sb.toString();
+    }
+
     private static String totals(List<Db.Expense> list) {
         Map<String, Long> sums = new LinkedHashMap<String, Long>();
         for (Db.Expense e : list) sums.put(e.currency, (sums.containsKey(e.currency) ? sums.get(e.currency) : 0L) + e.cents);
@@ -340,10 +378,49 @@ class TripsScreen extends Screen {
         dateRow.addView(from);
         dateRow.addView(to);
         box.addView(dateRow);
-        box.addView(Util.label(a, "Main currency"));
+        box.addView(Util.label(a, "Home currency (totals and reports)"));
         final EditText cur = Util.field(a, t.currency);
         cur.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS);
         box.addView(cur);
+
+        box.addView(Util.label(a, "Other currencies on this trip (your exchange rate)"));
+        final LinearLayout rateRows = new LinearLayout(a);
+        rateRows.setOrientation(LinearLayout.VERTICAL);
+        box.addView(rateRows);
+        for (Map.Entry<String, Double> en : TripMath.rates(t.rates).entrySet()) addRateRow(rateRows, en.getKey(), en.getValue());
+        Button addRate = new Button(a, null, android.R.attr.borderlessButtonStyle);
+        addRate.setText("+ Add a currency");
+        addRate.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) { addRateRow(rateRows, "", 0); }
+        });
+        box.addView(addRate);
+
+        final EditText budget = Util.field(a, t.budget > 0 ? String.format(Locale.getDefault(), "%.2f", t.budget / 100.0) : "");
+        final CheckBox perDiem = new CheckBox(a);
+        final EditText pdFull = Util.field(a, String.format(Locale.getDefault(), "%.2f", t.pdFull / 100.0));
+        final EditText pdPartial = Util.field(a, String.format(Locale.getDefault(), "%.2f", t.pdPartial / 100.0));
+        final EditText kmRate = Util.field(a, String.format(Locale.getDefault(), "%.2f", t.kmRate / 100.0));
+        for (EditText e : new EditText[]{budget, pdFull, pdPartial, kmRate}) {
+            e.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL);
+            e.setKeyListener(android.text.method.DigitsKeyListener.getInstance("0123456789.,"));
+        }
+        if (t.kind == Db.PRIVATE) {
+            box.addView(Util.label(a, "Budget (home currency, optional)"));
+            box.addView(budget);
+        } else {
+            perDiem.setText("Claim per-diem (meal) allowances");
+            perDiem.setChecked(t.perDiem);
+            box.addView(perDiem);
+            box.addView(Util.label(a, "Per diem: full day (24 h) / arrival & departure day"));
+            LinearLayout pd = new LinearLayout(a);
+            pd.addView(pdFull, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+            pd.addView(pdPartial, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+            box.addView(pd);
+            box.addView(Util.label(a, "Mileage rate per km (own car)"));
+            box.addView(kmRate);
+            TextView hint = text("Defaults are German rates (28 / 14 € per diem, 0.30 €/km). Check your company's rules.", 12, R.color.muted, false);
+            box.addView(hint);
+        }
 
         new AlertDialog.Builder(a)
                 .setTitle(t.id == 0 ? (t.kind == Db.BUSINESS ? "New business trip" : "New private trip") : "Edit trip")
@@ -359,6 +436,25 @@ class TripsScreen extends Screen {
                         String c = cur.getText().toString().trim().toUpperCase(Locale.ROOT);
                         t.currency = c.isEmpty() ? "EUR" : c;
                         a.prefs.edit().putString("currency", t.currency).apply();
+                        Map<String, Double> rates = new LinkedHashMap<String, Double>();
+                        for (int i = 0; i < rateRows.getChildCount(); i++) {
+                            View row = rateRows.getChildAt(i);
+                            String code = ((EditText) row.findViewWithTag("code")).getText().toString().trim().toUpperCase(Locale.ROOT);
+                            long rate = parseAmount(((EditText) row.findViewWithTag("rate")).getText().toString());
+                            String raw = ((EditText) row.findViewWithTag("rate")).getText().toString().replace(',', '.').trim();
+                            try {
+                                double r = Double.parseDouble(raw);
+                                if (!code.isEmpty() && r > 0 && !code.equals(t.currency)) rates.put(code, r);
+                            } catch (NumberFormatException ignored) {
+                            }
+                        }
+                        t.rates = TripMath.ratesString(rates);
+                        long b = parseAmount(budget.getText().toString());
+                        t.budget = Math.max(0, b);
+                        t.perDiem = perDiem.isChecked();
+                        if (parseAmount(pdFull.getText().toString()) >= 0) t.pdFull = parseAmount(pdFull.getText().toString());
+                        if (parseAmount(pdPartial.getText().toString()) >= 0) t.pdPartial = parseAmount(pdPartial.getText().toString());
+                        if (parseAmount(kmRate.getText().toString()) >= 0) t.kmRate = parseAmount(kmRate.getText().toString());
                         boolean isNew = t.id == 0;
                         db.saveTrip(t);
                         if (isNew) openTrip(t);
@@ -370,12 +466,33 @@ class TripsScreen extends Screen {
         if (t.id == 0) Util.showKeyboard(name);
     }
 
+    /** One "1 USD = 0.92 EUR" row in the trip editor. */
+    private void addRateRow(LinearLayout rows, String code, double rate) {
+        LinearLayout row = new LinearLayout(a);
+        row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        row.addView(text("1 ", 15, R.color.text, false));
+        EditText c = Util.field(a, code);
+        c.setTag("code");
+        c.setHint("USD");
+        c.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS);
+        row.addView(c, new LinearLayout.LayoutParams(Util.dp(a, 80), ViewGroup.LayoutParams.WRAP_CONTENT));
+        row.addView(text(" = ", 15, R.color.text, false));
+        EditText r = Util.field(a, rate > 0 ? String.valueOf(rate) : "");
+        r.setTag("rate");
+        r.setHint("0.92");
+        r.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL);
+        r.setKeyListener(android.text.method.DigitsKeyListener.getInstance("0123456789.,"));
+        row.addView(r, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        row.addView(text(" home", 13, R.color.muted, false));
+        rows.addView(row);
+    }
+
     // ---------------------------------------------------------------- trip detail
 
     private String[] tabsFor(Db.Trip t) {
         return t.kind == Db.BUSINESS
-                ? new String[]{TAB_EXPENSES, TAB_BOOKINGS, TAB_NOTES}
-                : new String[]{TAB_PLAN, TAB_BOOKINGS, TAB_JOURNAL, TAB_EXPENSES};
+                ? new String[]{TAB_EXPENSES, TAB_BOOKINGS, TAB_PACKING, TAB_NOTES}
+                : new String[]{TAB_PLAN, TAB_BOOKINGS, TAB_JOURNAL, TAB_EXPENSES, TAB_PACKING};
     }
 
     private void openTrip(Db.Trip t) {
@@ -384,6 +501,48 @@ class TripsScreen extends Screen {
         a.screenChanged();
         render();
         detailScroll.scrollTo(0, 0);
+    }
+
+    @Override
+    void open(long id) {
+        for (Db.Trip t : db.trips()) {
+            if (t.id == id) {
+                openTrip(t);
+                return;
+            }
+        }
+    }
+
+    /** The trip happening now, else the next one, else the latest; null if there are no trips. */
+    static Db.Trip currentTrip(Db db) {
+        long today = Util.startOfDay(System.currentTimeMillis());
+        Db.Trip next = null, latest = null;
+        for (Db.Trip t : db.trips()) {
+            if (t.start != 0 && t.start <= today && (t.finish == 0 || t.finish >= today)) return t;
+            if (t.start > today && (next == null || t.start < next.start)) next = t;
+            if (latest == null || t.start > latest.start) latest = t;
+        }
+        return next != null ? next : latest;
+    }
+
+    /** Widget / shortcut "expense": a new expense on the current trip. */
+    @Override
+    void quick(String what) {
+        Db.Trip t = currentTrip(db);
+        if (t == null) {
+            newTrip();
+            return;
+        }
+        addReceipt(t, null);
+    }
+
+    /** Opens the trip's expenses and starts a new expense, with shared receipt files already attached. */
+    void addReceipt(Db.Trip t, List<String> files) {
+        openTrip(t);
+        tab = TAB_EXPENSES;
+        render();
+        sharedFiles = files;
+        addForTab();
     }
 
     private void closeTrip() {
@@ -420,13 +579,30 @@ class TripsScreen extends Screen {
         if (TAB_EXPENSES.equals(tab)) renderExpenses();
         else if (TAB_BOOKINGS.equals(tab)) renderItems("booking");
         else if (TAB_PLAN.equals(tab)) renderPlaces();
+        else if (TAB_PACKING.equals(tab)) renderPacking();
         else renderItems("journal");
 
         addItem.setText(TAB_EXPENSES.equals(tab) ? "+  Expense" : TAB_BOOKINGS.equals(tab) ? "+  Booking or pass"
-                : TAB_PLAN.equals(tab) ? "+  Place" : TAB_JOURNAL.equals(tab) ? "+  Journal entry" : "+  Note");
+                : TAB_PLAN.equals(tab) ? "+  Place" : TAB_JOURNAL.equals(tab) ? "+  Journal entry"
+                : TAB_PACKING.equals(tab) ? "+  Item" : "+  Note");
     }
 
     private void addForTab() {
+        if (TAB_PACKING.equals(tab)) {
+            final Store.Checklist l = st.checklistForTrip(trip.id);
+            if (l == null) {
+                startPacking();
+                return;
+            }
+            Util.prompt(a, "Add to packing list", "", "e.g. Umbrella", "Add", new Util.TextEntered() {
+                public void onText(String text) {
+                    st.addCheckItem(l.id, text);
+                    render();
+                    addForTab();
+                }
+            });
+            return;
+        }
         if (TAB_EXPENSES.equals(tab)) {
             Db.Expense e = new Db.Expense();
             e.trip = trip.id;
@@ -454,13 +630,24 @@ class TripsScreen extends Screen {
         for (Db.Expense e : list) if (!e.submitted) open++;
         String line = list.size() + " expense" + (list.size() == 1 ? "" : "s")
                 + (trip.kind == Db.BUSINESS && open > 0 ? " · " + open + " not yet submitted" : "");
-        LinearLayout sum = card("💶", "Total " + totals(list), line, list.isEmpty() ? null : "Report ›");
+        boolean multi = false;
+        for (Db.Expense e : list) multi |= !e.currency.equalsIgnoreCase(trip.currency);
+        if (multi) line += "\nPaid: " + totals(list);
+        LinearLayout sum = card("💶", "Total " + homeTotal(list), line, list.isEmpty() ? null : "Report ›");
         sum.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) {
-                if (!list.isEmpty()) showReport("Expenses · " + trip.name, list);
+                if (!list.isEmpty()) {
+                    reportingTrip = true;
+                    showReport("Expenses · " + trip.name, list);
+                }
             }
         });
         content.addView(sum);
+        if (trip.kind == Db.PRIVATE && trip.budget > 0) content.addView(budgetCard(list));
+        if (trip.kind == Db.BUSINESS && trip.perDiem) {
+            LinearLayout pd = card("🍽", "Per diem " + money(perDiemTotal(), trip.currency), perDiemText(), null);
+            content.addView(pd);
+        }
         if (list.isEmpty()) {
             TextView hint = text("Tap “+ Expense” to note a taxi, hotel, dinner… right when it happens. Attach a "
                     + "photo of the receipt so you have everything for the expense report.", 14, R.color.muted, false);
@@ -481,6 +668,9 @@ class TripsScreen extends Screen {
             int receipts = db.attachmentCount("expense", e.id);
             sub.append(receipts > 0 ? " · 📎 receipt" : (trip.kind == Db.BUSINESS ? " · no receipt" : ""));
             if (e.submitted) sub.append(" · ✓ submitted");
+            if (e.km > 0) sub.append(" · ").append(String.format(Locale.getDefault(), "%.0f km", e.km));
+            long h = home(e);
+            if (!e.currency.equalsIgnoreCase(trip.currency)) sub.append(h >= 0 ? " · ≈ " + money(h, trip.currency) : " · set a rate for " + e.currency);
             LinearLayout row = card(EXPENSE_EMOJI[cat], e.merchant.isEmpty() ? e.category : e.merchant, sub.toString(),
                     money(e.cents, e.currency));
             if (e.submitted) row.setAlpha(0.7f);
@@ -489,6 +679,37 @@ class TripsScreen extends Screen {
             });
             content.addView(row);
         }
+    }
+
+    private long perDiemTotal() {
+        int[] d = TripMath.perDiemDays(trip.start, trip.finish);
+        return d[0] * trip.pdFull + d[1] * trip.pdPartial;
+    }
+
+    private String perDiemText() {
+        if (trip.start == 0) return "Set the trip dates to calculate the allowance";
+        int[] d = TripMath.perDiemDays(trip.start, trip.finish);
+        return (d[0] > 0 ? d[0] + " full day" + (d[0] == 1 ? "" : "s") + " × " + money(trip.pdFull, trip.currency) + " + " : "")
+                + d[1] + " arrival/departure day" + (d[1] == 1 ? "" : "s") + " × " + money(trip.pdPartial, trip.currency)
+                + "\nMeals paid by others (e.g. hotel breakfast) usually reduce it; check your company's rules.";
+    }
+
+    private View budgetCard(List<Db.Expense> list) {
+        long spent = 0;
+        for (Db.Expense e : list) {
+            long h = home(e);
+            if (h > 0) spent += h;
+        }
+        int pct = (int) Math.min(999, spent * 100 / Math.max(1, trip.budget));
+        long left = trip.budget - spent;
+        LinearLayout c = card("🎯", "Budget " + money(trip.budget, trip.currency), "Spent " + money(spent, trip.currency) + " (" + pct + "%) · "
+                + (left >= 0 ? money(left, trip.currency) + " left" : money(-left, trip.currency) + " over budget"), null);
+        android.widget.ProgressBar bar = new android.widget.ProgressBar(a, null, android.R.attr.progressBarStyleHorizontal);
+        bar.setMax(100);
+        bar.setProgress(Math.min(100, pct));
+        if (pct > 100) bar.setProgressTintList(android.content.res.ColorStateList.valueOf(Util.color(a, R.color.overdue)));
+        ((LinearLayout) c.getChildAt(1)).addView(bar);
+        return c;
     }
 
     private void editExpense(final Db.Expense e) {
@@ -524,6 +745,64 @@ class TripsScreen extends Screen {
         cur.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS);
         amountRow.addView(cur, new LinearLayout.LayoutParams(Util.dp(a, 80), ViewGroup.LayoutParams.WRAP_CONTENT));
         box.addView(amountRow);
+        LinearLayout curChips = new LinearLayout(a);
+        List<String> currencies = new ArrayList<String>();
+        currencies.add(trip.currency);
+        currencies.addAll(TripMath.rates(trip.rates).keySet());
+        if (currencies.size() > 1) {
+            for (final String code : currencies) {
+                TextView chip = Util.chip(a, code, Util.color(a, R.color.primary), false);
+                chip.setOnClickListener(new View.OnClickListener() {
+                    public void onClick(View v) { cur.setText(code); }
+                });
+                curChips.addView(chip);
+            }
+            box.addView(curChips);
+        }
+        final TextView converted = text("", 13, R.color.muted, false);
+        box.addView(converted);
+        final TextView kmLabel = Util.label(a, "Kilometres driven");
+        final EditText km = Util.field(a, e.km > 0 ? String.format(Locale.getDefault(), "%.0f", e.km) : "");
+        km.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL);
+        km.setKeyListener(android.text.method.DigitsKeyListener.getInstance("0123456789.,"));
+        box.addView(kmLabel);
+        box.addView(km);
+        final Runnable updateConverted = new Runnable() {
+            public void run() {
+                boolean mileage = MILEAGE.equals(EXPENSE_CATS[cat.getSelectedItemPosition()]);
+                kmLabel.setVisibility(mileage ? View.VISIBLE : View.GONE);
+                km.setVisibility(mileage ? View.VISIBLE : View.GONE);
+                if (mileage) {
+                    long kmCents = parseAmount(km.getText().toString());
+                    if (kmCents >= 0) {
+                        long cents = Math.round(kmCents / 100.0 * trip.kmRate);
+                        converted.setText(String.format(Locale.getDefault(), "%.0f km × %s = %s", kmCents / 100.0,
+                                money(trip.kmRate, trip.currency), money(cents, trip.currency)));
+                    }
+                    return;
+                }
+                String c = cur.getText().toString().trim().toUpperCase(Locale.ROOT);
+                long cents = parseAmount(amount.getText().toString());
+                if (c.isEmpty() || c.equals(trip.currency) || cents <= 0) {
+                    converted.setText("");
+                    return;
+                }
+                long h = TripMath.toHome(cents, c, trip.currency, TripMath.rates(trip.rates));
+                converted.setText(h >= 0 ? "≈ " + money(h, trip.currency) : "No rate for " + c + " yet: you'll be asked after saving");
+            }
+        };
+        android.text.TextWatcher watcher = new android.text.TextWatcher() {
+            public void beforeTextChanged(CharSequence x, int s1, int c1, int a1) {}
+            public void onTextChanged(CharSequence x, int s1, int b1, int c1) {}
+            public void afterTextChanged(android.text.Editable ed) { updateConverted.run(); }
+        };
+        amount.addTextChangedListener(watcher);
+        cur.addTextChangedListener(watcher);
+        km.addTextChangedListener(watcher);
+        cat.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
+            public void onItemSelected(android.widget.AdapterView<?> p, View v, int pos, long id) { updateConverted.run(); }
+            public void onNothingSelected(android.widget.AdapterView<?> p) {}
+        });
 
         box.addView(Util.label(a, "Where / what"));
         final EditText merchant = Util.field(a, e.merchant);
@@ -548,6 +827,10 @@ class TripsScreen extends Screen {
         box.addView(Util.label(a, "Receipt"));
         final AttachmentStrip receipts = new AttachmentStrip(a, "Receipt");
         receipts.load("expense", e.id);
+        if (sharedFiles != null) {
+            for (String f : sharedFiles) receipts.addPending(f);
+            sharedFiles = null;
+        }
         box.addView(receipts.view);
 
         final CheckBox submitted = new CheckBox(a);
@@ -560,16 +843,23 @@ class TripsScreen extends Screen {
                 .setView(scroll(box))
                 .setPositiveButton("Save", new DialogInterface.OnClickListener() {
                     public void onClick(DialogInterface d, int which) {
+                        e.category = EXPENSE_CATS[cat.getSelectedItemPosition()];
                         long cents = parseAmount(amount.getText().toString());
+                        String c = cur.getText().toString().trim().toUpperCase(Locale.ROOT);
+                        e.currency = c.isEmpty() ? trip.currency : c;
+                        e.km = 0;
+                        if (MILEAGE.equals(e.category)) {
+                            long kmCents = parseAmount(km.getText().toString());
+                            e.km = Math.max(0, kmCents / 100.0);
+                            cents = Math.round(e.km * trip.kmRate);
+                            e.currency = trip.currency;
+                        }
                         if (cents < 0) {
                             Toast.makeText(a, "Amount not saved: please enter a number like 12.50", Toast.LENGTH_LONG).show();
                             cents = e.cents;
                         }
                         e.day = day[0];
-                        e.category = EXPENSE_CATS[cat.getSelectedItemPosition()];
                         e.cents = Math.max(0, cents);
-                        String c = cur.getText().toString().trim().toUpperCase(Locale.ROOT);
-                        e.currency = c.isEmpty() ? trip.currency : c;
                         e.merchant = merchant.getText().toString().trim();
                         e.attendees = who.getText().toString().trim();
                         e.payment = PAYMENTS[pay.getSelectedItemPosition()];
@@ -579,6 +869,7 @@ class TripsScreen extends Screen {
                         db.saveExpense(e);
                         receipts.commit("expense", e.id);
                         render();
+                        if (!e.currency.equals(trip.currency) && !TripMath.rates(trip.rates).containsKey(e.currency)) askRate(e.currency);
                     }
                 })
                 .setNegativeButton("Cancel", new DialogInterface.OnClickListener() {
@@ -604,6 +895,103 @@ class TripsScreen extends Screen {
         });
         dlg.show();
         if (e.id == 0) Util.showKeyboard(amount);
+    }
+
+    /** Asks "1 USD = ? EUR" for a currency that has no rate on this trip yet. */
+    private void askRate(final String code) {
+        final EditText rate = Util.field(a, "");
+        rate.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL);
+        rate.setKeyListener(android.text.method.DigitsKeyListener.getInstance("0123456789.,"));
+        rate.setHint("e.g. 0.92");
+        new AlertDialog.Builder(a).setTitle("Exchange rate for " + code)
+                .setMessage("1 " + code + " = how many " + trip.currency + "? (Use the rate from your bank or card statement.)")
+                .setView(Util.wrap(a, rate))
+                .setPositiveButton("Save", new DialogInterface.OnClickListener() {
+                    public void onClick(DialogInterface d, int which) {
+                        try {
+                            double r = Double.parseDouble(rate.getText().toString().replace(',', '.').trim());
+                            if (r <= 0) return;
+                            Map<String, Double> rates = TripMath.rates(trip.rates);
+                            rates.put(code, r);
+                            trip.rates = TripMath.ratesString(rates);
+                            db.saveTrip(trip);
+                            render();
+                        } catch (NumberFormatException ignored) {
+                        }
+                    }
+                })
+                .setNegativeButton("Later", null).show();
+        Util.showKeyboard(rate);
+    }
+
+    // ---------------------------------------------------------------- packing list
+
+    private void renderPacking() {
+        final Store.Checklist l = st.checklistForTrip(trip.id);
+        if (l == null) {
+            TextView t = text("Start a packing list for this trip from one of your checklist templates (edit templates in "
+                    + "the Checklists module), or from scratch.", 14, R.color.muted, false);
+            t.setPadding(Util.dp(a, 6), Util.dp(a, 16), Util.dp(a, 6), Util.dp(a, 8));
+            content.addView(t);
+            LinearLayout start = card("🧳", "Start packing list", "Choose a template", "›");
+            start.setOnClickListener(new View.OnClickListener() {
+                public void onClick(View v) { startPacking(); }
+            });
+            content.addView(start);
+            return;
+        }
+        List<Store.CheckItem> items = st.checkItems(l.id);
+        int done = 0;
+        for (Store.CheckItem i : items) if (i.done) done++;
+        LinearLayout head = card("🧳", "Packed " + done + " of " + items.size(), "Tap to tick · long-press to edit", "Reset");
+        head.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                st.resetChecklist(l.id);
+                render();
+            }
+        });
+        content.addView(head);
+        for (final Store.CheckItem i : items) {
+            LinearLayout row = card(i.done ? "☑" : "☐", i.text, null, null);
+            if (i.done) {
+                TextView t = (TextView) row.findViewWithTag("title");
+                t.setPaintFlags(t.getPaintFlags() | Paint.STRIKE_THRU_TEXT_FLAG);
+                t.setTextColor(Util.color(a, R.color.muted));
+            }
+            row.setOnClickListener(new View.OnClickListener() {
+                public void onClick(View v) {
+                    st.setCheckItem(i.id, i.text, !i.done);
+                    render();
+                }
+            });
+            row.setOnLongClickListener(new View.OnLongClickListener() {
+                public boolean onLongClick(View v) {
+                    Util.prompt(a, "Edit item", i.text, "Clear the text to delete", "Save", new Util.TextEntered() {
+                        public void onText(String text) {
+                            st.setCheckItem(i.id, text, i.done);
+                            render();
+                        }
+                    });
+                    return true;
+                }
+            });
+            content.addView(row);
+        }
+    }
+
+    private void startPacking() {
+        final List<Store.Checklist> templates = st.checklists(true);
+        List<String> names = new ArrayList<String>();
+        for (Store.Checklist t : templates) names.add("📋 " + t.title + " (" + t.total + ")");
+        names.add("Empty list");
+        new AlertDialog.Builder(a).setTitle("Start from…").setItems(names.toArray(new String[0]), new DialogInterface.OnClickListener() {
+            public void onClick(DialogInterface d, int which) {
+                String title = "Packing · " + trip.name;
+                if (which < templates.size()) st.copyChecklist(templates.get(which).id, title, false, trip.id);
+                else st.addChecklist(title, false, trip.id);
+                render();
+            }
+        }).show();
     }
 
     // ---------------------------------------------------------------- bookings, places, journal
@@ -822,6 +1210,7 @@ class TripsScreen extends Screen {
                         c.setTimeInMillis(from);
                         c.add(Calendar.MONTH, 1);
                         String title = "Expenses · " + new SimpleDateFormat("MMMM yyyy", Locale.getDefault()).format(new Date(from));
+                        reportingTrip = false;
                         showReport(title, db.businessExpenses(from, Util.startOfDay(c.getTimeInMillis())));
                     }
                 })
@@ -835,6 +1224,9 @@ class TripsScreen extends Screen {
         return Util.startOfDay(c.getTimeInMillis());
     }
 
+    /** True while showing a single trip's report (per diem is added); false for the monthly report. */
+    private boolean reportingTrip;
+
     private String tripNameOf(Db.Expense e) {
         return e.tripName != null ? e.tripName : trip != null ? trip.name : "";
     }
@@ -843,7 +1235,12 @@ class TripsScreen extends Screen {
     private String reportText(String title, List<Db.Expense> list) {
         SimpleDateFormat f = new SimpleDateFormat("EEE dd.MM.yyyy", Locale.getDefault());
         StringBuilder sb = new StringBuilder(title).append('\n');
-        sb.append("Total: ").append(totals(list)).append(" (").append(list.size()).append(" expenses)\n\n");
+        sb.append("Total: ").append(homeTotal(list)).append(" (").append(list.size()).append(" expenses)\n");
+        if (trip != null && trip.kind == Db.BUSINESS && trip.perDiem && reportingTrip) {
+            sb.append("Per diem allowance: ").append(money(perDiemTotal(), trip.currency)).append(" (")
+                    .append(perDiemText().split("\n")[0]).append(")\n");
+        }
+        sb.append('\n');
         Map<String, List<Db.Expense>> byCat = new LinkedHashMap<String, List<Db.Expense>>();
         for (String c : EXPENSE_CATS) byCat.put(c, new ArrayList<Db.Expense>());
         for (Db.Expense e : list) {
@@ -852,13 +1249,15 @@ class TripsScreen extends Screen {
         }
         sb.append("By category\n");
         for (Map.Entry<String, List<Db.Expense>> en : byCat.entrySet()) {
-            if (!en.getValue().isEmpty()) sb.append("  ").append(en.getKey()).append(": ").append(totals(en.getValue())).append('\n');
+            if (!en.getValue().isEmpty()) sb.append("  ").append(en.getKey()).append(": ").append(homeTotal(en.getValue())).append('\n');
         }
         sb.append("\nDetails\n");
         for (int k = 0; k < list.size(); k++) {
             Db.Expense e = list.get(k);
             sb.append("\n").append(f.format(new Date(e.day))).append(" · ").append(tripNameOf(e)).append('\n');
             sb.append("  ").append(e.category).append(" — ").append(money(e.cents, e.currency));
+            if (!e.currency.equalsIgnoreCase(homeOf(e)) && home(e) >= 0) sb.append(" (≈ ").append(money(home(e), homeOf(e))).append(")");
+            if (e.km > 0) sb.append(String.format(Locale.getDefault(), " — %.0f km", e.km));
             if (!e.merchant.isEmpty()) sb.append(" — ").append(e.merchant);
             sb.append('\n');
             if (!e.attendees.isEmpty()) sb.append("  With: ").append(e.attendees).append('\n');
@@ -873,8 +1272,12 @@ class TripsScreen extends Screen {
     private String reportHtml(String title, List<Db.Expense> list) {
         SimpleDateFormat f = new SimpleDateFormat("dd.MM.yyyy", Locale.getDefault());
         StringBuilder h = new StringBuilder(Report.HEAD);
-        h.append("<h1>").append(Report.esc(title)).append("</h1><p><b>Total: ").append(Report.esc(totals(list)))
+        h.append("<h1>").append(Report.esc(title)).append("</h1><p><b>Total: ").append(Report.esc(homeTotal(list)))
                 .append("</b> · ").append(list.size()).append(" expenses</p>");
+        if (trip != null && trip.kind == Db.BUSINESS && trip.perDiem && reportingTrip) {
+            h.append("<p>Per diem allowance: <b>").append(Report.esc(money(perDiemTotal(), trip.currency))).append("</b> (")
+                    .append(Report.esc(perDiemText().split("\n")[0])).append(")</p>");
+        }
         h.append("<table><tr><th>#</th><th>Date</th><th>Trip</th><th>Category</th><th>Where / what</th><th>With</th>"
                 + "<th>Paid with</th><th class='n'>Amount</th><th>Receipt</th></tr>");
         List<String[]> receipts = new ArrayList<String[]>();
@@ -888,7 +1291,9 @@ class TripsScreen extends Screen {
                     .append(Report.esc(tripNameOf(e))).append("</td><td>").append(Report.esc(e.category)).append("</td><td>")
                     .append(Report.esc(e.merchant)).append(e.note.isEmpty() ? "" : "<br><span class='muted'>" + Report.esc(e.note) + "</span>")
                     .append("</td><td>").append(Report.esc(e.attendees)).append("</td><td>").append(Report.esc(e.payment))
-                    .append("</td><td class='n'>").append(Report.esc(money(e.cents, e.currency))).append("</td><td>")
+                    .append("</td><td class='n'>").append(Report.esc(money(e.cents, e.currency)))
+                    .append(!e.currency.equalsIgnoreCase(homeOf(e)) && home(e) >= 0 ? "<br><span class='muted'>≈ " + Report.esc(money(home(e), homeOf(e))) + "</span>" : "")
+                    .append("</td><td>")
                     .append(att.isEmpty() ? "–" : "✓").append(e.submitted ? " <span class='muted'>(submitted)</span>" : "")
                     .append("</td></tr>");
         }
@@ -919,21 +1324,101 @@ class TripsScreen extends Screen {
         new AlertDialog.Builder(a)
                 .setTitle(title)
                 .setView(scroll(t))
-                .setPositiveButton("PDF", new DialogInterface.OnClickListener() {
-                    public void onClick(DialogInterface d, int which) { a.printHtml(title, reportHtml(title, list)); }
+                .setPositiveButton("Export…", new DialogInterface.OnClickListener() {
+                    public void onClick(DialogInterface d, int which) { exportOptions(title, list, allSubmitted); }
                 })
-                .setNeutralButton("Share", new DialogInterface.OnClickListener() {
-                    public void onClick(DialogInterface d, int which) { a.shareText(title, reportText(title, list)); }
-                })
-                .setNegativeButton(allSubmitted ? "Mark not submitted" : "Mark submitted", new DialogInterface.OnClickListener() {
-                    public void onClick(DialogInterface d, int which) {
-                        db.setSubmitted(list, !allSubmitted);
-                        Toast.makeText(a, allSubmitted ? "Marked as not submitted" : list.size() + " expenses marked as submitted",
-                                Toast.LENGTH_SHORT).show();
-                        render();
-                    }
-                })
+                .setNegativeButton("Close", null)
                 .show();
+    }
+
+    private void exportOptions(final String title, final List<Db.Expense> list, final boolean allSubmitted) {
+        new AlertDialog.Builder(a).setTitle("Export")
+                .setItems(new String[]{"📊 Excel / CSV file → share (e.g. email to work)", "💾 Save Excel / CSV file to the phone",
+                        "📄 PDF with receipt photos", "✉ Share as text", allSubmitted ? "Mark all as not submitted" : "✓ Mark all as submitted"},
+                        new DialogInterface.OnClickListener() {
+                            public void onClick(DialogInterface d, int which) {
+                                if (which == 0) shareCsv(title, list);
+                                else if (which == 1) saveCsv(title, list);
+                                else if (which == 2) a.printHtml(title, reportHtml(title, list));
+                                else if (which == 3) a.shareText(title, reportText(title, list));
+                                else {
+                                    db.setSubmitted(list, !allSubmitted);
+                                    Toast.makeText(a, allSubmitted ? "Marked as not submitted" : list.size() + " expenses marked as submitted",
+                                            Toast.LENGTH_SHORT).show();
+                                    render();
+                                }
+                            }
+                        }).show();
+    }
+
+    /** Excel-friendly CSV: semicolons and decimal commas where the phone uses them (e.g. German Excel). */
+    private String csv(List<Db.Expense> list) {
+        char dec = java.text.DecimalFormatSymbols.getInstance().getDecimalSeparator();
+        char sep = dec == ',' ? ';' : ',';
+        SimpleDateFormat f = new SimpleDateFormat("dd.MM.yyyy", Locale.getDefault());
+        StringBuilder sb = new StringBuilder("\uFEFF");
+        sb.append(Csv.row(sep, "Date", "Trip", "Category", "Where / what", "With whom", "Paid with", "Amount", "Currency",
+                "Amount (home)", "Home currency", "Km", "Receipt", "Submitted", "Notes"));
+        for (Db.Expense e : list) {
+            long h = home(e);
+            sb.append(Csv.row(sep, f.format(new Date(e.day)), tripNameOf(e), e.category, e.merchant, e.attendees, e.payment,
+                    num(e.cents, dec), e.currency, h >= 0 ? num(h, dec) : "", homeOf(e),
+                    e.km > 0 ? String.format(Locale.ROOT, "%.0f", e.km) : "",
+                    db.attachmentCount("expense", e.id) > 0 ? "yes" : "no", e.submitted ? "yes" : "no", e.note));
+        }
+        if (trip != null && trip.kind == Db.BUSINESS && trip.perDiem && reportingTrip) {
+            sb.append(Csv.row(sep, trip.start == 0 ? "" : f.format(new Date(trip.start)), trip.name, "Per diem allowance",
+                    perDiemText().split("\n")[0], "", "", num(perDiemTotal(), dec), trip.currency, num(perDiemTotal(), dec),
+                    trip.currency, "", "", "", ""));
+        }
+        return sb.toString();
+    }
+
+    private static String num(long cents, char dec) {
+        return String.format(Locale.ROOT, "%.2f", cents / 100.0).replace('.', dec);
+    }
+
+    private String csvName(String title) {
+        return title.replaceAll("[^A-Za-z0-9äöüÄÖÜß ._-]", "").trim().replace(' ', '-') + ".csv";
+    }
+
+    private void shareCsv(String title, List<Db.Expense> list) {
+        try {
+            String name = java.util.UUID.randomUUID() + ".csv";
+            java.io.OutputStream os = new java.io.FileOutputStream(Attachments.file(a, name));
+            try {
+                os.write(csv(list).getBytes("UTF-8"));
+            } finally {
+                os.close();
+            }
+            android.content.Intent send = new android.content.Intent(android.content.Intent.ACTION_SEND).setType("text/csv")
+                    .putExtra(android.content.Intent.EXTRA_STREAM, Files.attachment(name))
+                    .putExtra(android.content.Intent.EXTRA_SUBJECT, title)
+                    .putExtra(android.content.Intent.EXTRA_TEXT, title + " (open the attached file with Excel)")
+                    .addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            a.startExternal(android.content.Intent.createChooser(send, "Send expense file"));
+            Attachments.file(a, name).deleteOnExit();
+        } catch (java.io.IOException e) {
+            Toast.makeText(a, "Could not create the file", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void saveCsv(final String title, final List<Db.Expense> list) {
+        a.createDocument(csvName(title), "text/csv", new MainActivity.UriPicked() {
+            public void onUri(android.net.Uri uri) {
+                try {
+                    java.io.OutputStream os = a.getContentResolver().openOutputStream(uri);
+                    try {
+                        os.write(csv(list).getBytes("UTF-8"));
+                    } finally {
+                        os.close();
+                    }
+                    Toast.makeText(a, "Saved", Toast.LENGTH_SHORT).show();
+                } catch (Exception e) {
+                    Toast.makeText(a, "Could not save the file", Toast.LENGTH_SHORT).show();
+                }
+            }
+        });
     }
 
     /** Travel diary for a private trip: places visited and the journal with photos. */
@@ -993,7 +1478,10 @@ class TripsScreen extends Screen {
             case MENU_TRIP_REPORT:
                 List<Db.Expense> list = db.expenses(trip.id);
                 if (list.isEmpty()) Toast.makeText(a, "No expenses on this trip yet", Toast.LENGTH_SHORT).show();
-                else showReport("Expenses · " + trip.name, list);
+                else {
+                    reportingTrip = true;
+                    showReport("Expenses · " + trip.name, list);
+                }
                 return true;
             case MENU_TRAVEL_DIARY:
                 travelDiary();

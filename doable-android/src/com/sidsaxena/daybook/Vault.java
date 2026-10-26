@@ -41,11 +41,20 @@ import javax.crypto.spec.SecretKeySpec;
  */
 public class Vault {
 
+    public static final String[] TYPES = {"Login", "Bank card", "Secure note", "Wi-Fi"};
+
     public static class Login {
         public String id;
+        public String type = "Login";
         public String title = "";
+        public String url = "";       // website or app, used by autofill
         public String user = "";
-        public String password = "";
+        public String password = "";  // also the Wi-Fi password
+        public String number = "";    // card number
+        public String holder = "";
+        public String expiry = "";    // MM/YY
+        public String cvv = "";
+        public String pin = "";
         public String notes = "";
         public long modified;
     }
@@ -97,6 +106,13 @@ public class Vault {
                 l.password = o.optString("password");
                 l.notes = o.optString("notes");
                 l.modified = o.optLong("modified");
+                l.type = o.optString("type", "Login");
+                l.url = o.optString("url");
+                l.number = o.optString("number");
+                l.holder = o.optString("holder");
+                l.expiry = o.optString("expiry");
+                l.cvv = o.optString("cvv");
+                l.pin = o.optString("pin");
                 logins.add(l);
             }
         }
@@ -110,6 +126,17 @@ public class Vault {
     /** Switches fingerprint protection on or off. The vault must be open. */
     public void setRequiresAuth(boolean auth) throws GeneralSecurityException {
         wrapKey(dataKey, auth);
+    }
+
+    /** The data key (vault must be open), stored in the password-encrypted backup. */
+    byte[] rawKey() {
+        return dataKey.getEncoded();
+    }
+
+    /** Restore: protects the backup's data key with this phone's Keystore (vault.bin is already in place). */
+    void adoptKey(byte[] raw, boolean auth) throws GeneralSecurityException {
+        close();
+        wrapKey(new SecretKeySpec(raw, "AES"), auth);
     }
 
     /** Deletes everything, e.g. after the Keystore key became unusable. */
@@ -154,8 +181,7 @@ public class Vault {
         JSONArray arr = new JSONArray();
         try {
             for (Login l : logins) {
-                arr.put(new JSONObject().put("id", l.id).put("title", l.title).put("user", l.user)
-                        .put("password", l.password).put("notes", l.notes).put("modified", l.modified));
+                arr.put(toJson(l));
             }
         } catch (JSONException e) {
             throw new IOException(e);
@@ -170,6 +196,105 @@ public class Vault {
             out.close();
         }
         if (!tmp.renameTo(file)) throw new IOException("Could not save passwords");
+    }
+
+    static JSONObject toJson(Login l) throws JSONException {
+        return new JSONObject().put("id", l.id).put("type", l.type).put("title", l.title).put("url", l.url)
+                .put("user", l.user).put("password", l.password).put("number", l.number).put("holder", l.holder)
+                .put("expiry", l.expiry).put("cvv", l.cvv).put("pin", l.pin).put("notes", l.notes)
+                .put("modified", l.modified);
+    }
+
+    static Login fromJson(JSONObject o) {
+        Login l = new Login();
+        l.id = o.optString("id", null);
+        l.type = o.optString("type", "Login");
+        l.title = o.optString("title");
+        l.url = o.optString("url");
+        l.user = o.optString("user");
+        l.password = o.optString("password");
+        l.number = o.optString("number");
+        l.holder = o.optString("holder");
+        l.expiry = o.optString("expiry");
+        l.cvv = o.optString("cvv");
+        l.pin = o.optString("pin");
+        l.notes = o.optString("notes");
+        l.modified = o.optLong("modified");
+        return l;
+    }
+
+    /** All logins as JSON (vault must be open), for the encrypted backup. */
+    public String exportJson() throws JSONException {
+        JSONArray arr = new JSONArray();
+        for (Login l : logins) arr.put(toJson(l));
+        return arr.toString();
+    }
+
+    /** Replaces / adds logins from a backup (vault must be open). */
+    public void importJson(String json, boolean replace) throws JSONException, GeneralSecurityException, IOException {
+        JSONArray arr = new JSONArray(json);
+        if (replace) logins.clear();
+        for (int i = 0; i < arr.length(); i++) {
+            Login l = fromJson(arr.getJSONObject(i));
+            if (l.id == null || l.id.isEmpty()) l.id = UUID.randomUUID().toString();
+            logins.add(l);
+        }
+        save();
+    }
+
+    /**
+     * Imports a password CSV from Chrome / Edge / Firefox / Bitwarden / 1Password / Proton Pass.
+     * Returns the number of logins added (exact duplicates are skipped).
+     */
+    public int importCsv(String text) throws GeneralSecurityException, IOException {
+        List<List<String>> rows = Csv.parse(text);
+        if (rows.size() < 2) return 0;
+        List<String> head = new ArrayList<String>();
+        for (String h : rows.get(0)) head.add(h.trim().toLowerCase(java.util.Locale.ROOT));
+        int name = col(head, "name", "title"), url = col(head, "url", "login_uri", "website", "uri"),
+                user = col(head, "username", "login_username", "login", "email"),
+                pass = col(head, "password", "login_password"), note = col(head, "note", "notes", "extra", "comment");
+        if (pass < 0) return 0;
+        int added = 0;
+        for (int r = 1; r < rows.size(); r++) {
+            List<String> row = rows.get(r);
+            Login l = new Login();
+            l.url = get(row, url);
+            l.title = get(row, name).isEmpty() ? host(l.url) : get(row, name);
+            if (l.title.isEmpty()) l.title = "Imported login";
+            l.user = get(row, user);
+            l.password = get(row, pass);
+            l.notes = get(row, note);
+            if (l.password.isEmpty() && l.user.isEmpty()) continue;
+            boolean dup = false;
+            for (Login o : logins) dup |= o.title.equals(l.title) && o.user.equals(l.user) && o.password.equals(l.password);
+            if (dup) continue;
+            l.id = UUID.randomUUID().toString();
+            l.modified = System.currentTimeMillis();
+            logins.add(l);
+            added++;
+        }
+        save();
+        return added;
+    }
+
+    private static int col(List<String> head, String... names) {
+        for (String n : names) if (head.contains(n)) return head.indexOf(n);
+        return -1;
+    }
+
+    private static String get(List<String> row, int i) {
+        return i >= 0 && i < row.size() ? row.get(i).trim() : "";
+    }
+
+    /** "https://www.facebook.com/login" → "facebook.com". */
+    static String host(String url) {
+        String h = url.trim().toLowerCase(java.util.Locale.ROOT).replaceFirst("^[a-z]+://", "");
+        int slash = h.indexOf('/');
+        if (slash >= 0) h = h.substring(0, slash);
+        int colon = h.indexOf(':');
+        if (colon >= 0) h = h.substring(0, colon);
+        return h.startsWith("www.") ? h.substring(4) : h;
     }
 
     // ---- crypto ----

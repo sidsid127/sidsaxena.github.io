@@ -12,57 +12,75 @@
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:orientation="vertical">
-    <EditText
-        android:id="@+id/search"
-        android:layout_width="match_parent"
-        android:layout_height="44dp"
-        android:layout_margin="12dp"
-        android:background="@drawable/input_bg"
-        android:hint="@string/search"
-        android:imeOptions="actionSearch"
-        android:inputType="text"
-        android:maxLines="1"
-        android:paddingLeft="16dp"
-        android:paddingRight="16dp"
-        android:textColor="@color/text"
-        android:textColorHint="@color/muted"
-        android:textSize="16sp" />
-    <FrameLayout
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1">
 
-        <ListView
-            android:id="@+id/list"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:clipToPadding="false"
-            android:divider="@null"
-            android:dividerHeight="0dp"
-            android:paddingBottom="88dp"
-            android:paddingLeft="12dp"
-            android:paddingRight="12dp" />
+            <HorizontalScrollView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@color/card"
+                android:elevation="2dp"
+                android:scrollbars="none">
 
-        <TextView
-            android:id="@+id/empty"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:gravity="center"
-            android:padding="32dp"
-            android:textColor="@color/muted"
-            android:textSize="16sp" />
-    </FrameLayout>
+                <LinearLayout
+                    android:id="@+id/folders"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:padding="8dp" />
+            </HorizontalScrollView>
+
+            <EditText
+                android:id="@+id/search"
+                android:layout_width="match_parent"
+                android:layout_height="44dp"
+                android:layout_margin="12dp"
+                android:background="@drawable/input_bg"
+                android:hint="@string/search"
+                android:imeOptions="actionSearch"
+                android:inputType="text"
+                android:maxLines="1"
+                android:paddingLeft="16dp"
+                android:paddingRight="16dp"
+                android:textColor="@color/text"
+                android:textColorHint="@color/muted"
+                android:textSize="16sp" />
+
+            <FrameLayout
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1">
+
+                <ListView
+                    android:id="@+id/list"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:clipToPadding="false"
+                    android:divider="@null"
+                    android:dividerHeight="0dp"
+                    android:paddingBottom="88dp"
+                    android:paddingLeft="12dp"
+                    android:paddingRight="12dp" />
+
+                <TextView
+                    android:id="@+id/empty"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:gravity="center"
+                    android:padding="32dp"
+                    android:textColor="@color/muted"
+                    android:textSize="16sp" />
+            </FrameLayout>
         </LinearLayout>
-    <ImageButton
-        android:id="@+id/new_note"
-        android:layout_width="60dp"
-        android:layout_height="60dp"
-        android:layout_gravity="bottom|right"
-        android:layout_margin="20dp"
-        android:background="@drawable/fab_bg"
-        android:elevation="6dp"
-        android:contentDescription="@string/add"
-        android:src="@drawable/ic_add" />
+
+        <ImageButton
+            android:id="@+id/new_note"
+            android:layout_width="60dp"
+            android:layout_height="60dp"
+            android:layout_gravity="bottom|right"
+            android:layout_margin="20dp"
+            android:background="@drawable/fab_bg"
+            android:contentDescription="@string/new_note"
+            android:elevation="6dp"
+            android:src="@drawable/ic_add" />
     </FrameLayout>
 
     <LinearLayout
@@ -78,20 +96,46 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:gravity="center"
-            android:paddingTop="10dp"
+            android:paddingTop="8dp"
             android:textColor="@color/muted"
             android:textSize="12sp" />
 
         <EditText
             android:id="@+id/editor"
             android:layout_width="match_parent"
-            android:layout_height="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
             android:background="@null"
             android:gravity="top"
+            android:hint="Start typing… the first line is the title"
             android:inputType="textMultiLine|textCapSentences"
             android:lineSpacingExtra="3dp"
             android:padding="18dp"
             android:textColor="@color/text"
+            android:textColorHint="@color/muted"
             android:textSize="17sp" />
+
+        <FrameLayout
+            android:id="@+id/attachments"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingLeft="12dp"
+            android:paddingRight="12dp" />
+
+        <HorizontalScrollView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@color/bg"
+            android:scrollbars="none">
+
+            <LinearLayout
+                android:id="@+id/toolbar"
+                android:layout_width="wrap_content"
+                android:layout_height="48dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingLeft="6dp"
+                android:paddingRight="6dp" />
+        </HorizontalScrollView>
     </LinearLayout>
 </FrameLayout>

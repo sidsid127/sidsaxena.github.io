@@ -30,8 +30,15 @@ class AttachmentStrip {
     private final List<Db.Attachment> removed = new ArrayList<Db.Attachment>();
     private final List<String> pending = new ArrayList<String>();   // new files, not in the database yet
 
+    private final boolean voice;
+
     AttachmentStrip(MainActivity activity, String addLabel) {
+        this(activity, addLabel, false);
+    }
+
+    AttachmentStrip(MainActivity activity, String addLabel, boolean voice) {
         a = activity;
+        this.voice = voice;
         this.addLabel = addLabel;
         view = new HorizontalScrollView(a);
         view.setHorizontalScrollBarEnabled(false);
@@ -69,6 +76,12 @@ class AttachmentStrip {
         }
         Attachments.delete(a, gone);
         load(owner, ownerId);
+    }
+
+    /** Adds a new file (e.g. a voice note recorded from a toolbar). */
+    void addPending(String file) {
+        pending.add(file);
+        render();
     }
 
     /** Throws away files added since the last commit. */
@@ -109,14 +122,16 @@ class AttachmentStrip {
         bg.setStroke(Util.dp(a, 1), Util.color(a, R.color.muted), Util.dp(a, 4), Util.dp(a, 3));
         add.setBackground(bg);
         add.setLayoutParams(tileParams());
+        add.setTag("add");
         add.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) {
                 a.pickAttachments(new MainActivity.FilesPicked() {
                     public void onFiles(List<String> files) {
                         pending.addAll(files);
                         render();
+                        if (listener != null) listener.run();
                     }
-                });
+                }, voice);
             }
         });
         row.addView(add);
@@ -128,7 +143,32 @@ class AttachmentStrip {
         return lp;
     }
 
+    private Runnable listener;
+
+    /** Called when files are added (e.g. to save a note straight away). */
+    void setOnAdded(Runnable r) {
+        listener = r;
+    }
+
     private View tile(final String file, final Runnable remove) {
+        if (Attachments.isAudio(file)) {
+            TextView t = new TextView(a);
+            t.setText("🎤\n" + Voice.duration(a, file));
+            t.setGravity(Gravity.CENTER);
+            t.setTextColor(Util.color(a, R.color.text));
+            t.setBackgroundColor(Util.color(a, R.color.selected));
+            t.setLayoutParams(tileParams());
+            t.setOnClickListener(new View.OnClickListener() {
+                public void onClick(View v) { Voice.toggle(a, file); }
+            });
+            t.setOnLongClickListener(new View.OnLongClickListener() {
+                public boolean onLongClick(View v) {
+                    Util.confirm(a, "Delete this voice note?", null, "Delete", remove);
+                    return true;
+                }
+            });
+            return t;
+        }
         ImageView iv = new ImageView(a);
         iv.setScaleType(ImageView.ScaleType.CENTER_CROP);
         Bitmap b = Attachments.thumb(a, file, Util.dp(a, 152));
