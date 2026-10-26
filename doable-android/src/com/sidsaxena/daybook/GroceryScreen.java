@@ -2,14 +2,14 @@ package com.sidsaxena.daybook;
 
 import android.app.AlertDialog;
 import android.content.DialogInterface;
-import android.graphics.Paint;
+import android.text.Editable;
+import android.text.TextWatcher;
 import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.Menu;
 import android.view.View;
 import android.view.inputmethod.EditorInfo;
 import android.widget.ArrayAdapter;
-import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.Spinner;
@@ -23,37 +23,59 @@ import java.util.Locale;
 import java.util.Set;
 
 /**
- * Grocery list grouped by shop. Everything ever added is remembered under "Buy again", so next week's
- * list is a few taps.
+ * Grocery list grouped by shop. Ticking an item off removes it (with Undo); everything ever added is
+ * remembered under "Buy again", and typing filters those suggestions.
  */
 class GroceryScreen extends Screen {
 
-    private static final int MENU_CLEAR_BOUGHT = 120;
+    private static final int MENU_CLEAR = 120;
     private static final int MENU_SHARE = 121;
+    private static final long UNDO_MS = 6000;
 
     private final LinearLayout content, shopChips;
     private final EditText input;
+    private final View undoBar;
+    private final TextView undoText;
     private long selShop; // shop new items are added to, 0 = any shop
     private List<Db.Shop> shops = new ArrayList<Db.Shop>();
+
+    /** Items ticked off since the undo bar appeared; Undo puts them all back. */
+    private final List<Db.Item> justBought = new ArrayList<Db.Item>();
+    private final Runnable hideUndo = new Runnable() {
+        public void run() {
+            justBought.clear();
+            undoBar.setVisibility(View.GONE);
+        }
+    };
 
     GroceryScreen(MainActivity activity) {
         super(activity, R.layout.screen_grocery);
         content = (LinearLayout) root.findViewById(R.id.grocery_content);
         shopChips = (LinearLayout) root.findViewById(R.id.shop_chips);
         input = (EditText) root.findViewById(R.id.input);
+        undoBar = root.findViewById(R.id.undo_bar);
+        undoText = (TextView) root.findViewById(R.id.undo_text);
         selShop = a.prefs.getLong("selShop", 0);
 
         root.findViewById(R.id.add_btn).setOnClickListener(new View.OnClickListener() {
-            public void onClick(View v) { add(); }
+            public void onClick(View v) { addFromInput(); }
         });
         input.setOnEditorActionListener(new TextView.OnEditorActionListener() {
             public boolean onEditorAction(TextView v, int actionId, KeyEvent event) {
                 if (actionId == EditorInfo.IME_ACTION_DONE) {
-                    add();
+                    addFromInput();
                     return true; // keep the keyboard open for the next item
                 }
                 return false;
             }
+        });
+        input.addTextChangedListener(new TextWatcher() {
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
+            public void onTextChanged(CharSequence s, int start, int before, int count) {}
+            public void afterTextChanged(Editable s) { reload(); }
+        });
+        root.findViewById(R.id.undo_btn).setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) { undo(); }
         });
     }
 
@@ -65,6 +87,12 @@ class GroceryScreen extends Screen {
     @Override
     void onShow() {
         reload();
+    }
+
+    @Override
+    void onHide() {
+        undoBar.removeCallbacks(hideUndo);
+        hideUndo.run();
     }
 
     private Db.Shop shop(long id) {
@@ -82,13 +110,53 @@ class GroceryScreen extends Screen {
         return s == null ? Util.color(a, R.color.muted) : s.color;
     }
 
-    private void add() {
+    private static String key(String name) {
+        return name.trim().toLowerCase(Locale.getDefault());
+    }
+
+    // ---------------------------------------------------------------- adding & ticking off
+
+    private void addFromInput() {
         String name = input.getText().toString().trim();
         if (name.isEmpty()) return;
-        db.addItem(name, selShop);
+        add(name, selShop);
         input.setText("");
+    }
+
+    /** Adds an item unless it is already on the list (that was how "Eggs" ended up there twice). */
+    private void add(String name, long shopId) {
+        for (Db.Item it : db.items()) {
+            if (key(it.name).equals(key(name))) {
+                Toast.makeText(a, "\"" + it.name + "\" is already on your list (" + shopName(it.shop) + ")",
+                        Toast.LENGTH_SHORT).show();
+                return;
+            }
+        }
+        db.addItem(name, shopId);
         reload();
     }
+
+    /** Ticking an item off means it's bought: it leaves the list, and Undo can bring it back. */
+    private void bought(Db.Item it) {
+        db.deleteItem(it.id);
+        justBought.add(it);
+        undoText.setText(justBought.size() == 1 ? "✓ Bought " + it.name : "✓ Bought " + justBought.size() + " items");
+        undoBar.setVisibility(View.VISIBLE);
+        undoBar.removeCallbacks(hideUndo);
+        undoBar.postDelayed(hideUndo, UNDO_MS);
+        reload();
+    }
+
+    private void undo() {
+        for (Db.Item it : justBought) db.restoreItem(it);
+        int n = justBought.size();
+        undoBar.removeCallbacks(hideUndo);
+        hideUndo.run();
+        Toast.makeText(a, n == 1 ? "Put back on the list" : n + " items put back", Toast.LENGTH_SHORT).show();
+        reload();
+    }
+
+    // ---------------------------------------------------------------- list
 
     void reload() {
         shops = db.shops();
@@ -98,21 +166,37 @@ class GroceryScreen extends Screen {
 
         content.removeAllViews();
         List<Db.Item> items = db.items();
-        int toBuy = 0, inCart = 0;
         Set<String> onList = new HashSet<String>();
-        for (Db.Item it : items) {
-            if (it.done) inCart++;
-            else {
-                toBuy++;
-                onList.add(it.name.toLowerCase(Locale.getDefault()));
+        for (Db.Item it : items) onList.add(key(it.name));
+        String q = key(input.getText().toString());
+
+        // While typing, matching items from the history come first so one tap adds them.
+        List<Db.Usual> usuals = new ArrayList<Db.Usual>();
+        for (Db.Usual u : db.usuals()) {
+            if (onList.contains(key(u.name))) continue;
+            if (!q.isEmpty() && !key(u.name).contains(q)) continue;
+            usuals.add(u);
+        }
+        if (!q.isEmpty()) {
+            if (!usuals.isEmpty()) {
+                content.addView(header("Bought before · tap to add", 0));
+                content.addView(usualChips(usuals));
+            }
+            for (Db.Item it : items) {
+                if (key(it.name).contains(q)) {
+                    TextView t = text("\"" + it.name + "\" is already on the list (" + shopName(it.shop) + ")", 13, R.color.muted);
+                    t.setPadding(Util.dp(a, 4), Util.dp(a, 8), 0, 0);
+                    content.addView(t);
+                }
             }
         }
+
         TextView summary = text(items.isEmpty() ? "Your list is empty. Add items below or tap one under Buy again."
-                : toBuy + " to buy · " + inCart + " in the cart", 13, R.color.muted);
+                : items.size() + " to buy · tap an item once it's in your cart", 13, R.color.muted);
         summary.setPadding(Util.dp(a, 4), Util.dp(a, 12), 0, Util.dp(a, 2));
         content.addView(summary);
 
-        // One section per shop (shops in order, "Any shop" last); unbought items first within each.
+        // One section per shop (shops in order, "Any shop" last).
         List<Long> order = new ArrayList<Long>();
         for (Db.Shop s : shops) order.add(s.id);
         order.add(0L);
@@ -120,42 +204,40 @@ class GroceryScreen extends Screen {
             List<Db.Item> section = new ArrayList<Db.Item>();
             for (Db.Item it : items) if (it.shop == shopId || (shopId == 0 && shop(it.shop) == null)) section.add(it);
             if (section.isEmpty()) continue;
-            int left = 0;
-            for (Db.Item it : section) if (!it.done) left++;
-            content.addView(header("● " + shopName(shopId) + (left > 0 ? "  ·  " + left : ""),
-                    Util.readable(a, shopColor(shopId))));
+            content.addView(header("● " + shopName(shopId) + "  ·  " + section.size(), Util.readable(a, shopColor(shopId))));
             for (Db.Item it : section) content.addView(itemRow(it));
         }
 
-        // Buy again: everything bought before that isn't already on the list.
-        List<Db.Usual> usuals = new ArrayList<Db.Usual>();
-        for (Db.Usual u : db.usuals()) if (!onList.contains(u.name.toLowerCase(Locale.getDefault()))) usuals.add(u);
-        if (!usuals.isEmpty()) {
+        if (q.isEmpty() && !usuals.isEmpty()) {
             content.addView(header("Buy again · tap to add", 0));
-            FlowLayout flow = new FlowLayout(a);
-            for (final Db.Usual u : usuals) {
-                TextView c = Util.chip(a, "+ " + u.name, shopColor(u.shop), false);
-                c.setOnClickListener(new View.OnClickListener() {
-                    public void onClick(View v) {
-                        db.addItem(u.name, u.shop);
-                        reload();
-                    }
-                });
-                c.setOnLongClickListener(new View.OnLongClickListener() {
-                    public boolean onLongClick(View v) {
-                        Util.confirm(a, "Remove \"" + u.name + "\" from Buy again?", null, "Remove", new Runnable() {
-                            public void run() {
-                                db.forgetUsual(u.name);
-                                reload();
-                            }
-                        });
-                        return true;
-                    }
-                });
-                flow.addView(c);
-            }
-            content.addView(flow);
+            content.addView(usualChips(usuals));
         }
+    }
+
+    private FlowLayout usualChips(List<Db.Usual> usuals) {
+        FlowLayout flow = new FlowLayout(a);
+        for (final Db.Usual u : usuals) {
+            TextView c = Util.chip(a, "+ " + u.name, shopColor(u.shop), false);
+            c.setOnClickListener(new View.OnClickListener() {
+                public void onClick(View v) {
+                    if (input.getText().length() > 0) input.setText(""); // also refreshes the list
+                    add(u.name, shop(u.shop) != null ? u.shop : 0);
+                }
+            });
+            c.setOnLongClickListener(new View.OnLongClickListener() {
+                public boolean onLongClick(View v) {
+                    Util.confirm(a, "Remove \"" + u.name + "\" from Buy again?", null, "Remove", new Runnable() {
+                        public void run() {
+                            db.forgetUsual(u.name);
+                            reload();
+                        }
+                    });
+                    return true;
+                }
+            });
+            flow.addView(c);
+        }
+        return flow;
     }
 
     private void buildShopChips() {
@@ -240,34 +322,26 @@ class GroceryScreen extends Screen {
         return t;
     }
 
-    /** Tap a row to tick it off (or back on); long-press to edit or delete. */
+    /** Tap the circle or the row to mark it bought; long-press to edit or delete. */
     private View itemRow(final Db.Item it) {
         LinearLayout row = new LinearLayout(a);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setBackgroundResource(R.drawable.card_bg);
         row.setMinimumHeight(Util.dp(a, 52));
-        row.setPadding(Util.dp(a, 6), 0, Util.dp(a, 14), 0);
+        row.setPadding(Util.dp(a, 16), 0, Util.dp(a, 14), 0);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
         lp.topMargin = Util.dp(a, 6);
         row.setLayoutParams(lp);
 
-        CheckBox check = new CheckBox(a);
-        check.setChecked(it.done);
-        check.setClickable(false);
-        check.setFocusable(false);
-        row.addView(check);
-
-        TextView name = text(it.name, 16, it.done ? R.color.muted : R.color.text);
-        if (it.done) name.setPaintFlags(name.getPaintFlags() | Paint.STRIKE_THRU_TEXT_FLAG);
-        row.addView(name, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+        TextView circle = text("○", 22, R.color.prio_none);
+        circle.setPadding(0, 0, Util.dp(a, 14), 0);
+        row.addView(circle);
+        row.addView(text(it.name, 16, R.color.text), new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
 
         row.setOnClickListener(new View.OnClickListener() {
-            public void onClick(View v) {
-                db.setItemDone(it.id, !it.done);
-                reload();
-            }
+            public void onClick(View v) { bought(it); }
         });
         row.setOnLongClickListener(new View.OnLongClickListener() {
             public boolean onLongClick(View v) {
@@ -305,7 +379,7 @@ class GroceryScreen extends Screen {
                         reload();
                     }
                 })
-                .setNeutralButton("Delete", new DialogInterface.OnClickListener() {
+                .setNeutralButton("Remove from list", new DialogInterface.OnClickListener() {
                     public void onClick(DialogInterface d, int which) {
                         db.deleteItem(it.id);
                         reload();
@@ -317,17 +391,19 @@ class GroceryScreen extends Screen {
 
     @Override
     void onCreateMenu(Menu menu) {
-        menu.add(0, MENU_CLEAR_BOUGHT, 0, "Clear bought items");
-        menu.add(0, MENU_SHARE, 1, "Share list");
+        menu.add(0, MENU_SHARE, 0, "Share list");
+        menu.add(0, MENU_CLEAR, 1, "Clear the whole list");
     }
 
     @Override
     boolean onMenu(int id) {
-        if (id == MENU_CLEAR_BOUGHT) {
-            int n = db.clearBoughtItems();
-            Toast.makeText(a, n == 0 ? "Nothing ticked off yet" : "Cleared " + n + " item(s). They stay under Buy again.",
-                    Toast.LENGTH_SHORT).show();
-            reload();
+        if (id == MENU_CLEAR) {
+            Util.confirm(a, "Clear the whole list?", "Items stay under Buy again.", "Clear", new Runnable() {
+                public void run() {
+                    for (Db.Item it : db.items()) db.deleteItem(it.id);
+                    reload();
+                }
+            });
             return true;
         }
         if (id == MENU_SHARE) {
@@ -339,7 +415,7 @@ class GroceryScreen extends Screen {
             for (long shopId : order) {
                 StringBuilder part = new StringBuilder();
                 for (Db.Item it : items) {
-                    if (it.done || !(it.shop == shopId || (shopId == 0 && shop(it.shop) == null))) continue;
+                    if (!(it.shop == shopId || (shopId == 0 && shop(it.shop) == null))) continue;
                     part.append("• ").append(it.name).append('\n');
                 }
                 if (part.length() > 0) sb.append(shopName(shopId)).append('\n').append(part).append('\n');

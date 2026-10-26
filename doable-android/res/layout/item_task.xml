@@ -9,8 +9,19 @@
     android:minHeight="60dp"
     android:orientation="horizontal"
     android:paddingBottom="8dp"
-    android:paddingLeft="6dp"
+    android:paddingLeft="0dp"
     android:paddingTop="8dp">
+
+    <ImageView
+        android:id="@+id/drag"
+        android:layout_width="28dp"
+        android:layout_height="48dp"
+        android:contentDescription="Drag to reorder"
+        android:focusable="false"
+        android:paddingLeft="6dp"
+        android:scaleType="centerInside"
+        android:src="@drawable/ic_drag"
+        android:tint="@color/prio_none" />
 
     <CheckBox
         android:id="@+id/check"

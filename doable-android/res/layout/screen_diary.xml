@@ -1,0 +1,147 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <FrameLayout
+        android:id="@+id/list_panel"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/summary"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingBottom="4dp"
+                android:paddingLeft="16dp"
+                android:paddingRight="16dp"
+                android:paddingTop="10dp"
+                android:textColor="@color/muted"
+                android:textSize="13sp" />
+
+            <FrameLayout
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1">
+
+                <ListView
+                    android:id="@+id/list"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:clipToPadding="false"
+                    android:divider="@null"
+                    android:dividerHeight="0dp"
+                    android:paddingBottom="96dp"
+                    android:paddingLeft="12dp"
+                    android:paddingRight="12dp" />
+
+                <TextView
+                    android:id="@+id/empty"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:gravity="center"
+                    android:padding="32dp"
+                    android:text="Your diary is empty.\nTap the button to write about today."
+                    android:textColor="@color/muted"
+                    android:textSize="16sp" />
+            </FrameLayout>
+        </LinearLayout>
+
+        <Button
+            android:id="@+id/write_today"
+            android:layout_width="wrap_content"
+            android:layout_height="52dp"
+            android:layout_gravity="bottom|right"
+            android:layout_margin="20dp"
+            android:background="@drawable/pill_bg"
+            android:elevation="6dp"
+            android:paddingLeft="22dp"
+            android:paddingRight="22dp"
+            android:text="Write about today"
+            android:textAllCaps="false"
+            android:textColor="#FFFFFFFF"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+    </FrameLayout>
+
+    <ScrollView
+        android:id="@+id/editor_panel"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@color/card"
+        android:visibility="gone">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="18dp">
+
+            <TextView
+                android:id="@+id/date"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="?android:attr/selectableItemBackground"
+                android:paddingBottom="4dp"
+                android:paddingTop="4dp"
+                android:textColor="@color/text"
+                android:textSize="24sp"
+                android:textStyle="bold" />
+
+            <TextView
+                style="@style/FormLabel"
+                android:text="How do you feel about today?" />
+
+            <LinearLayout
+                android:id="@+id/moods"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal" />
+
+            <TextView
+                style="@style/FormLabel"
+                android:text="How was my day?" />
+
+            <EditText
+                android:id="@+id/text"
+                style="@style/FormField"
+                android:hint="What happened, who you met, what you thought about…"
+                android:minLines="5" />
+
+            <TextView
+                style="@style/FormLabel"
+                android:text="☀ Highlights" />
+
+            <EditText
+                android:id="@+id/highs"
+                style="@style/FormField"
+                android:hint="The best moments"
+                android:minLines="2" />
+
+            <TextView
+                style="@style/FormLabel"
+                android:text="☁ Lowlights" />
+
+            <EditText
+                android:id="@+id/lows"
+                style="@style/FormField"
+                android:hint="What didn't go so well"
+                android:minLines="2" />
+
+            <TextView
+                style="@style/FormLabel"
+                android:text="Photos" />
+
+            <FrameLayout
+                android:id="@+id/photos"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingBottom="40dp" />
+        </LinearLayout>
+    </ScrollView>
+</FrameLayout>

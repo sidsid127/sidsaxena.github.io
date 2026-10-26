@@ -56,6 +56,7 @@ class TasksScreen extends Screen {
     private long selSub;     // selected sub-category filter, 0 = all of selTop
     private boolean showDone;
     private boolean grouped; // list is split into category sections (category label hidden on rows)
+    private Db.Task dragging; // task being dragged by its handle
 
     private final TextView summary;
     private final ListView list;
@@ -282,10 +283,11 @@ class TasksScreen extends Screen {
 
     // ---------------------------------------------------------------- list contents
 
-    /** Highest priority first, then soonest due date, then newest. */
+    /** Highest priority first, then your own drag order, then soonest due date, then newest. */
     private static final Comparator<Db.Task> BY_IMPORTANCE = new Comparator<Db.Task>() {
         public int compare(Db.Task x, Db.Task y) {
             if (x.priority != y.priority) return y.priority - x.priority;
+            if (x.position != y.position) return x.position < y.position ? -1 : 1;
             long dx = x.due > 0 ? x.due : Long.MAX_VALUE, dy = y.due > 0 ? y.due : Long.MAX_VALUE;
             if (dx != dy) return dx < dy ? -1 : 1;
             return x.created > y.created ? -1 : (x.created < y.created ? 1 : 0);
@@ -546,6 +548,70 @@ class TasksScreen extends Screen {
         dlg.show();
     }
 
+    // ---------------------------------------------------------------- drag to reorder
+
+    /**
+     * Drag a task by its handle to reorder it among neighbouring tasks of the same priority (in the same
+     * section). The new order is remembered.
+     */
+    private boolean onDrag(Db.Task t, android.view.MotionEvent e) {
+        switch (e.getActionMasked()) {
+            case android.view.MotionEvent.ACTION_DOWN:
+                dragging = t;
+                list.requestDisallowInterceptTouchEvent(true);
+                adapter.notifyDataSetChanged();
+                return true;
+            case android.view.MotionEvent.ACTION_MOVE: {
+                if (dragging == null) return false;
+                int[] loc = new int[2];
+                list.getLocationOnScreen(loc);
+                int y = (int) e.getRawY() - loc[1];
+                int edge = Util.dp(a, 56);
+                if (y < edge) list.smoothScrollBy(-Util.dp(a, 12), 16);
+                else if (y > list.getHeight() - edge) list.smoothScrollBy(Util.dp(a, 12), 16);
+                int target = list.pointToPosition(Util.dp(a, 40), Math.max(0, Math.min(y, list.getHeight() - 1)));
+                int from = rows.indexOf(dragging);
+                if (target == android.widget.AdapterView.INVALID_POSITION || from < 0 || target == from) return true;
+                int[] block = blockAround(from);
+                target = Math.max(block[0], Math.min(block[1], target));
+                if (target != from) {
+                    rows.remove(from);
+                    rows.add(target, dragging);
+                    adapter.notifyDataSetChanged();
+                }
+                return true;
+            }
+            case android.view.MotionEvent.ACTION_UP:
+            case android.view.MotionEvent.ACTION_CANCEL: {
+                if (dragging == null) return false;
+                int at = rows.indexOf(dragging);
+                if (at >= 0) {
+                    int[] block = blockAround(at);
+                    List<Db.Task> ordered = new ArrayList<Db.Task>();
+                    for (int i = block[0]; i <= block[1]; i++) ordered.add((Db.Task) rows.get(i));
+                    db.setPositions(ordered);
+                }
+                dragging = null;
+                reload();
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** First and last row index of the run of open tasks with the same priority around row i. */
+    private int[] blockAround(int i) {
+        int p = ((Db.Task) rows.get(i)).priority;
+        int lo = i, hi = i;
+        while (lo - 1 >= 0 && sameBlock(rows.get(lo - 1), p)) lo--;
+        while (hi + 1 < rows.size() && sameBlock(rows.get(hi + 1), p)) hi++;
+        return new int[]{lo, hi};
+    }
+
+    private static boolean sameBlock(Object row, int priority) {
+        return row instanceof Db.Task && !((Db.Task) row).done && ((Db.Task) row).priority == priority;
+    }
+
     // ---------------------------------------------------------------- list adapter
 
     private class RowAdapter extends BaseAdapter {
@@ -588,6 +654,13 @@ class TasksScreen extends Screen {
             View prio = view.findViewById(R.id.prio);
             ImageView prioIcon = (ImageView) view.findViewById(R.id.prio_icon);
             TextView prioLabel = (TextView) view.findViewById(R.id.prio_label);
+
+            View handle = view.findViewById(R.id.drag);
+            handle.setVisibility(t.done ? View.INVISIBLE : View.VISIBLE);
+            handle.setOnTouchListener(t.done ? null : new View.OnTouchListener() {
+                public boolean onTouch(View v, android.view.MotionEvent e) { return onDrag(t, e); }
+            });
+            view.setAlpha(dragging != null && dragging.id == t.id ? 0.55f : 1f);
 
             check.setOnCheckedChangeListener(null);
             check.setChecked(t.done);

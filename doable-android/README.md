@@ -14,14 +14,26 @@ fingerprint app lock and the theme (same as phone / light / dark).
 - **Notes**: like the iPhone Notes app — searchable list, pinned notes on top, full-screen editor where the
   first line is the title. Notes save automatically; use the keyboard's microphone to dictate.
 - **Groceries**: pick a shop chip (Rewe, Lidl, Aldi, or add your own) and add items; the list is grouped by
-  shop. Tap an item to tick it off. Everything you've ever added appears under **Buy again** — one tap
-  puts it back on the list with its shop. ⋮ → *Clear bought items* empties the cart.
+  shop. Tap an item once it's in your cart: it leaves the list, with an **Undo** bar for mistakes.
+  Everything you've ever added appears under **Buy again** — one tap puts it back on the list with its
+  shop — and typing shows matching items from that history. An item can't be on the list twice.
 - **Passwords**: logins encrypted with AES-256-GCM. The encryption key is protected by the Android
   Keystore (secure hardware) and, with *Require fingerprint* on, can only be used right after your
   fingerprint, face or screen lock. The screen blocks screenshots and locks itself when you leave it.
   Note: if you remove the phone's screen lock, Android deletes that key and the saved passwords can't
   be recovered — use ⋮ → *Export passwords* first if you ever plan to do that.
+- **My Diary**: one entry per day — mood, "How was my day?", highlights, lowlights and photos. ⋮ → *Export
+  diary as a book* creates a PDF (via Android's print dialog → *Save as PDF*).
+- **My Trips**: a new trip starts by choosing *Business* or *Private*.
+  - Business: quick expenses (category, amount, where, with whom, paid with, receipt photo/PDF, submitted
+    flag), bookings & passes, notes. The *Monthly expense report* lists a month's business expenses
+    oldest-first, to type into the company expense tool, as text or PDF with the receipts appended.
+  - Private: places to go (tick off when visited), bookings & passes with screenshots, a photo journal
+    and expenses. ⋮ → *Travel diary (PDF)* turns the journal into a printable travel diary.
 - **Activity log**: timestamped notes of what you did.
+
+Photos, screenshots and PDFs are copied into the app's private storage (images are shrunk to 2048 px).
+In To-do, drag a task by its ≡ handle to reorder it among tasks of the same priority.
 
 ## Install on your phone
 

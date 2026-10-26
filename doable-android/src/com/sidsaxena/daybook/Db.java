@@ -27,6 +27,7 @@ public class Db extends SQLiteOpenHelper {
         public long doneAt;
         public long category; // 0 = none
         public int priority;  // 0 none, 1 low, 2 medium, 3 high
+        public double position; // manual order within the same priority (0 = never dragged)
     }
 
     public static class Category {
@@ -70,7 +71,7 @@ public class Db extends SQLiteOpenHelper {
     }
 
     public Db(Context context) {
-        super(context, "daybook.db", null, 3);
+        super(context, "daybook.db", null, 4);
     }
 
     @Override
@@ -83,6 +84,7 @@ public class Db extends SQLiteOpenHelper {
                 + " ts INTEGER NOT NULL)");
         createCategories(db);
         createV3(db);
+        createV4(db);
     }
 
     @Override
@@ -93,6 +95,31 @@ public class Db extends SQLiteOpenHelper {
             createCategories(db);
         }
         if (oldVersion < 3) createV3(db);
+        if (oldVersion < 4) {
+            createV4(db);
+            // Ticked grocery items now leave the list straight away.
+            db.delete("grocery", "done = 1", null);
+        }
+    }
+
+    /** Diary, trips, attachments and manual task order, added in version 4. */
+    private static void createV4(SQLiteDatabase db) {
+        db.execSQL("ALTER TABLE tasks ADD COLUMN position REAL NOT NULL DEFAULT 0");
+        db.execSQL("CREATE TABLE diary (_id INTEGER PRIMARY KEY AUTOINCREMENT, day INTEGER NOT NULL UNIQUE,"
+                + " mood INTEGER NOT NULL DEFAULT 0, text TEXT NOT NULL DEFAULT '', highs TEXT NOT NULL DEFAULT '',"
+                + " lows TEXT NOT NULL DEFAULT '', modified INTEGER NOT NULL)");
+        db.execSQL("CREATE TABLE trips (_id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, kind INTEGER NOT NULL,"
+                + " destination TEXT NOT NULL DEFAULT '', start INTEGER NOT NULL DEFAULT 0, finish INTEGER NOT NULL DEFAULT 0,"
+                + " currency TEXT NOT NULL DEFAULT 'EUR', created INTEGER NOT NULL)");
+        db.execSQL("CREATE TABLE expenses (_id INTEGER PRIMARY KEY AUTOINCREMENT, trip INTEGER NOT NULL, day INTEGER NOT NULL,"
+                + " category TEXT NOT NULL, cents INTEGER NOT NULL, currency TEXT NOT NULL, merchant TEXT NOT NULL DEFAULT '',"
+                + " attendees TEXT NOT NULL DEFAULT '', payment TEXT NOT NULL DEFAULT '', note TEXT NOT NULL DEFAULT '',"
+                + " submitted INTEGER NOT NULL DEFAULT 0, created INTEGER NOT NULL)");
+        db.execSQL("CREATE TABLE trip_items (_id INTEGER PRIMARY KEY AUTOINCREMENT, trip INTEGER NOT NULL, kind TEXT NOT NULL,"
+                + " subtype TEXT NOT NULL DEFAULT '', title TEXT NOT NULL DEFAULT '', body TEXT NOT NULL DEFAULT '',"
+                + " day INTEGER NOT NULL DEFAULT 0, done INTEGER NOT NULL DEFAULT 0, created INTEGER NOT NULL)");
+        db.execSQL("CREATE TABLE attachments (_id INTEGER PRIMARY KEY AUTOINCREMENT, owner TEXT NOT NULL,"
+                + " owner_id INTEGER NOT NULL, file TEXT NOT NULL, name TEXT NOT NULL DEFAULT '', created INTEGER NOT NULL)");
     }
 
     /** Notes and groceries, added in version 3. */
@@ -137,7 +164,7 @@ public class Db extends SQLiteOpenHelper {
     public List<Task> tasks() {
         List<Task> out = new ArrayList<Task>();
         Cursor c = getReadableDatabase().rawQuery("SELECT _id, title, done, due, created, done_at,"
-                + " category, priority FROM tasks", null);
+                + " category, priority, position FROM tasks", null);
         try {
             while (c.moveToNext()) {
                 Task t = new Task();
@@ -149,6 +176,7 @@ public class Db extends SQLiteOpenHelper {
                 t.doneAt = c.getLong(5);
                 t.category = c.getLong(6);
                 t.priority = c.getInt(7);
+                t.position = c.getDouble(8);
                 out.add(t);
             }
         } finally {
@@ -174,6 +202,22 @@ public class Db extends SQLiteOpenHelper {
         v.put("category", category);
         v.put("priority", priority);
         updateTask(id, v);
+    }
+
+    /** Stores a manual order (1, 2, 3 …) for tasks dragged into a new order. */
+    public void setPositions(List<Task> ordered) {
+        SQLiteDatabase db = getWritableDatabase();
+        db.beginTransaction();
+        try {
+            for (int i = 0; i < ordered.size(); i++) {
+                ContentValues v = new ContentValues();
+                v.put("position", i + 1);
+                db.update("tasks", v, "_id = ?", new String[]{String.valueOf(ordered.get(i).id)});
+            }
+            db.setTransactionSuccessful();
+        } finally {
+            db.endTransaction();
+        }
     }
 
     public void setDue(long id, long due) {
@@ -440,6 +484,374 @@ public class Db extends SQLiteOpenHelper {
 
     public void forgetUsual(String name) {
         getWritableDatabase().delete("grocery_history", "name = ?", new String[]{name});
+    }
+
+    /** Puts a ticked-off item back (Undo), without counting it again in the history. */
+    public void restoreItem(Item it) {
+        ContentValues v = new ContentValues();
+        v.put("name", it.name);
+        v.put("shop", it.shop);
+        v.put("created", it.created);
+        getWritableDatabase().insert("grocery", null, v);
+    }
+
+    // ---- diary ----
+
+    public static class Diary {
+        public long id;
+        public long day;      // local midnight
+        public int mood;      // 0 = not set, 1 (bad) … 5 (great)
+        public String text = "";
+        public String highs = "";
+        public String lows = "";
+        public long modified;
+
+        public boolean isEmpty() {
+            return mood == 0 && text.trim().isEmpty() && highs.trim().isEmpty() && lows.trim().isEmpty();
+        }
+    }
+
+    /** Newest day first. */
+    public List<Diary> diary() {
+        List<Diary> out = new ArrayList<Diary>();
+        Cursor c = getReadableDatabase().rawQuery(
+                "SELECT _id, day, mood, text, highs, lows, modified FROM diary ORDER BY day DESC", null);
+        try {
+            while (c.moveToNext()) {
+                Diary d = new Diary();
+                d.id = c.getLong(0);
+                d.day = c.getLong(1);
+                d.mood = c.getInt(2);
+                d.text = c.getString(3);
+                d.highs = c.getString(4);
+                d.lows = c.getString(5);
+                d.modified = c.getLong(6);
+                out.add(d);
+            }
+        } finally {
+            c.close();
+        }
+        return out;
+    }
+
+    public Diary diaryFor(long day) {
+        for (Diary d : diary()) if (d.day == day) return d;
+        return null;
+    }
+
+    public void saveDiary(Diary d) {
+        ContentValues v = new ContentValues();
+        v.put("day", d.day);
+        v.put("mood", d.mood);
+        v.put("text", d.text);
+        v.put("highs", d.highs);
+        v.put("lows", d.lows);
+        v.put("modified", d.modified = System.currentTimeMillis());
+        if (d.id == 0) d.id = getWritableDatabase().insert("diary", null, v);
+        else getWritableDatabase().update("diary", v, "_id = ?", new String[]{String.valueOf(d.id)});
+    }
+
+    public void deleteDiary(long id) {
+        getWritableDatabase().delete("diary", "_id = ?", new String[]{String.valueOf(id)});
+    }
+
+    // ---- trips ----
+
+    public static final int BUSINESS = 0, PRIVATE = 1;
+
+    public static class Trip {
+        public long id;
+        public String name = "";
+        public int kind;
+        public String destination = "";
+        public long start, finish;   // local midnight, 0 = not set
+        public String currency = "EUR";
+    }
+
+    public static class Expense {
+        public long id, trip, day;
+        public String category = "", currency = "EUR", merchant = "", attendees = "", payment = "", note = "";
+        public long cents;
+        public boolean submitted;
+        public String tripName; // filled by monthly queries
+    }
+
+    /** Booking/pass ("booking"), place to go ("place") or journal/notes entry ("journal"). */
+    public static class TripItem {
+        public long id, trip, day, created;
+        public String kind = "", subtype = "", title = "", body = "";
+        public boolean done;
+    }
+
+    /** Upcoming and current trips first, then past ones (newest first). */
+    public List<Trip> trips() {
+        List<Trip> out = new ArrayList<Trip>();
+        Cursor c = getReadableDatabase().rawQuery("SELECT _id, name, kind, destination, start, finish, currency"
+                + " FROM trips ORDER BY CASE WHEN finish = 0 OR finish >= ? THEN 0 ELSE 1 END, start DESC, _id DESC",
+                new String[]{String.valueOf(Util.startOfDay(System.currentTimeMillis()))});
+        try {
+            while (c.moveToNext()) {
+                Trip t = new Trip();
+                t.id = c.getLong(0);
+                t.name = c.getString(1);
+                t.kind = c.getInt(2);
+                t.destination = c.getString(3);
+                t.start = c.getLong(4);
+                t.finish = c.getLong(5);
+                t.currency = c.getString(6);
+                out.add(t);
+            }
+        } finally {
+            c.close();
+        }
+        return out;
+    }
+
+    public void saveTrip(Trip t) {
+        ContentValues v = new ContentValues();
+        v.put("name", t.name);
+        v.put("kind", t.kind);
+        v.put("destination", t.destination);
+        v.put("start", t.start);
+        v.put("finish", t.finish);
+        v.put("currency", t.currency);
+        if (t.id == 0) {
+            v.put("created", System.currentTimeMillis());
+            t.id = getWritableDatabase().insert("trips", null, v);
+        } else {
+            getWritableDatabase().update("trips", v, "_id = ?", new String[]{String.valueOf(t.id)});
+        }
+    }
+
+    /** Deletes a trip with everything in it; returns the attachment files to delete. */
+    public List<String> deleteTrip(long id) {
+        List<String> files = new ArrayList<String>();
+        for (Expense e : expenses(id)) files.addAll(attachmentFiles("expense", e.id));
+        for (TripItem i : tripItems(id, null)) files.addAll(attachmentFiles("trip_item", i.id));
+        SQLiteDatabase db = getWritableDatabase();
+        String[] arg = {String.valueOf(id)};
+        db.execSQL("DELETE FROM attachments WHERE (owner = 'expense' AND owner_id IN (SELECT _id FROM expenses WHERE trip = ?))"
+                + " OR (owner = 'trip_item' AND owner_id IN (SELECT _id FROM trip_items WHERE trip = ?))", new Object[]{id, id});
+        db.delete("expenses", "trip = ?", arg);
+        db.delete("trip_items", "trip = ?", arg);
+        db.delete("trips", "_id = ?", arg);
+        return files;
+    }
+
+    private Expense readExpense(Cursor c) {
+        Expense e = new Expense();
+        e.id = c.getLong(0);
+        e.trip = c.getLong(1);
+        e.day = c.getLong(2);
+        e.category = c.getString(3);
+        e.cents = c.getLong(4);
+        e.currency = c.getString(5);
+        e.merchant = c.getString(6);
+        e.attendees = c.getString(7);
+        e.payment = c.getString(8);
+        e.note = c.getString(9);
+        e.submitted = c.getInt(10) != 0;
+        if (c.getColumnCount() > 11) e.tripName = c.getString(11);
+        return e;
+    }
+
+    private static final String EXPENSE_COLS = "e._id, e.trip, e.day, e.category, e.cents, e.currency, e.merchant,"
+            + " e.attendees, e.payment, e.note, e.submitted";
+
+    /** A trip's expenses, newest day first. */
+    public List<Expense> expenses(long trip) {
+        List<Expense> out = new ArrayList<Expense>();
+        Cursor c = getReadableDatabase().rawQuery("SELECT " + EXPENSE_COLS + " FROM expenses e WHERE e.trip = ?"
+                + " ORDER BY e.day DESC, e.created DESC", new String[]{String.valueOf(trip)});
+        try {
+            while (c.moveToNext()) out.add(readExpense(c));
+        } finally {
+            c.close();
+        }
+        return out;
+    }
+
+    /** Business-trip expenses with from <= day < to, oldest first (for the monthly report). */
+    public List<Expense> businessExpenses(long from, long to) {
+        List<Expense> out = new ArrayList<Expense>();
+        Cursor c = getReadableDatabase().rawQuery("SELECT " + EXPENSE_COLS + ", t.name FROM expenses e"
+                + " JOIN trips t ON t._id = e.trip WHERE t.kind = 0 AND e.day >= ? AND e.day < ?"
+                + " ORDER BY e.day, e.created", new String[]{String.valueOf(from), String.valueOf(to)});
+        try {
+            while (c.moveToNext()) out.add(readExpense(c));
+        } finally {
+            c.close();
+        }
+        return out;
+    }
+
+    /** Days (local midnight) of all business expenses, for picking a report month. */
+    public List<Long> businessExpenseDays() {
+        List<Long> out = new ArrayList<Long>();
+        Cursor c = getReadableDatabase().rawQuery("SELECT DISTINCT e.day FROM expenses e JOIN trips t ON t._id = e.trip"
+                + " WHERE t.kind = 0 ORDER BY e.day DESC", null);
+        try {
+            while (c.moveToNext()) out.add(c.getLong(0));
+        } finally {
+            c.close();
+        }
+        return out;
+    }
+
+    public void saveExpense(Expense e) {
+        ContentValues v = new ContentValues();
+        v.put("trip", e.trip);
+        v.put("day", e.day);
+        v.put("category", e.category);
+        v.put("cents", e.cents);
+        v.put("currency", e.currency);
+        v.put("merchant", e.merchant);
+        v.put("attendees", e.attendees);
+        v.put("payment", e.payment);
+        v.put("note", e.note);
+        v.put("submitted", e.submitted ? 1 : 0);
+        if (e.id == 0) {
+            v.put("created", System.currentTimeMillis());
+            e.id = getWritableDatabase().insert("expenses", null, v);
+        } else {
+            getWritableDatabase().update("expenses", v, "_id = ?", new String[]{String.valueOf(e.id)});
+        }
+    }
+
+    public void setSubmitted(List<Expense> list, boolean submitted) {
+        SQLiteDatabase db = getWritableDatabase();
+        db.beginTransaction();
+        try {
+            for (Expense e : list) {
+                ContentValues v = new ContentValues();
+                v.put("submitted", submitted ? 1 : 0);
+                db.update("expenses", v, "_id = ?", new String[]{String.valueOf(e.id)});
+                e.submitted = submitted;
+            }
+            db.setTransactionSuccessful();
+        } finally {
+            db.endTransaction();
+        }
+    }
+
+    public List<String> deleteExpense(long id) {
+        List<String> files = attachmentFiles("expense", id);
+        deleteAttachmentsOf("expense", id);
+        getWritableDatabase().delete("expenses", "_id = ?", new String[]{String.valueOf(id)});
+        return files;
+    }
+
+    /** kind null = all kinds. Dated items in day order, undated ones after, then by creation. */
+    public List<TripItem> tripItems(long trip, String kind) {
+        List<TripItem> out = new ArrayList<TripItem>();
+        String sql = "SELECT _id, trip, kind, subtype, title, body, day, done, created FROM trip_items WHERE trip = ?"
+                + (kind != null ? " AND kind = ?" : "") + " ORDER BY CASE WHEN day = 0 THEN 1 ELSE 0 END, day, created";
+        Cursor c = getReadableDatabase().rawQuery(sql, kind != null
+                ? new String[]{String.valueOf(trip), kind} : new String[]{String.valueOf(trip)});
+        try {
+            while (c.moveToNext()) {
+                TripItem i = new TripItem();
+                i.id = c.getLong(0);
+                i.trip = c.getLong(1);
+                i.kind = c.getString(2);
+                i.subtype = c.getString(3);
+                i.title = c.getString(4);
+                i.body = c.getString(5);
+                i.day = c.getLong(6);
+                i.done = c.getInt(7) != 0;
+                i.created = c.getLong(8);
+                out.add(i);
+            }
+        } finally {
+            c.close();
+        }
+        return out;
+    }
+
+    public void saveTripItem(TripItem i) {
+        ContentValues v = new ContentValues();
+        v.put("trip", i.trip);
+        v.put("kind", i.kind);
+        v.put("subtype", i.subtype);
+        v.put("title", i.title);
+        v.put("body", i.body);
+        v.put("day", i.day);
+        v.put("done", i.done ? 1 : 0);
+        if (i.id == 0) {
+            v.put("created", i.created = System.currentTimeMillis());
+            i.id = getWritableDatabase().insert("trip_items", null, v);
+        } else {
+            getWritableDatabase().update("trip_items", v, "_id = ?", new String[]{String.valueOf(i.id)});
+        }
+    }
+
+    public List<String> deleteTripItem(long id) {
+        List<String> files = attachmentFiles("trip_item", id);
+        deleteAttachmentsOf("trip_item", id);
+        getWritableDatabase().delete("trip_items", "_id = ?", new String[]{String.valueOf(id)});
+        return files;
+    }
+
+    // ---- attachments (photos, screenshots, receipts) ----
+
+    public static class Attachment {
+        public long id;
+        public String file;   // name inside the app's private attachment folder
+        public String name;   // original name, for display
+    }
+
+    public List<Attachment> attachments(String owner, long ownerId) {
+        List<Attachment> out = new ArrayList<Attachment>();
+        Cursor c = getReadableDatabase().rawQuery("SELECT _id, file, name FROM attachments WHERE owner = ? AND owner_id = ?"
+                + " ORDER BY created, _id", new String[]{owner, String.valueOf(ownerId)});
+        try {
+            while (c.moveToNext()) {
+                Attachment a = new Attachment();
+                a.id = c.getLong(0);
+                a.file = c.getString(1);
+                a.name = c.getString(2);
+                out.add(a);
+            }
+        } finally {
+            c.close();
+        }
+        return out;
+    }
+
+    public int attachmentCount(String owner, long ownerId) {
+        return (int) android.database.DatabaseUtils.queryNumEntries(getReadableDatabase(), "attachments",
+                "owner = ? AND owner_id = ?", new String[]{owner, String.valueOf(ownerId)});
+    }
+
+    private List<String> attachmentFiles(String owner, long ownerId) {
+        List<String> files = new ArrayList<String>();
+        for (Attachment a : attachments(owner, ownerId)) files.add(a.file);
+        return files;
+    }
+
+    public void addAttachment(String owner, long ownerId, String file, String name) {
+        ContentValues v = new ContentValues();
+        v.put("owner", owner);
+        v.put("owner_id", ownerId);
+        v.put("file", file);
+        v.put("name", name);
+        v.put("created", System.currentTimeMillis());
+        getWritableDatabase().insert("attachments", null, v);
+    }
+
+    public void deleteAttachment(long id) {
+        getWritableDatabase().delete("attachments", "_id = ?", new String[]{String.valueOf(id)});
+    }
+
+    private void deleteAttachmentsOf(String owner, long ownerId) {
+        getWritableDatabase().delete("attachments", "owner = ? AND owner_id = ?", new String[]{owner, String.valueOf(ownerId)});
+    }
+
+    public List<String> deleteDiaryWithFiles(long id) {
+        List<String> files = attachmentFiles("diary", id);
+        deleteAttachmentsOf("diary", id);
+        deleteDiary(id);
+        return files;
     }
 
     // ---- activity log ----
