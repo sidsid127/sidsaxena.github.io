@@ -5,6 +5,13 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 ANDROID_JAR=${ANDROID_JAR:-/usr/lib/android-sdk/platforms/android-23/android.jar}
+# Java code is compiled against the Android 14 framework (for the BiometricPrompt fingerprint API);
+# it comes from Maven Central and is only needed at build time.
+API34_JAR=${API34_JAR:-$HOME/.cache/android-all-34.jar}
+if [ ! -f "$API34_JAR" ]; then
+    mkdir -p "$(dirname "$API34_JAR")"
+    curl -sSfL -o "$API34_JAR" https://repo1.maven.org/maven2/org/robolectric/android-all/14-robolectric-10818077/android-all-14-robolectric-10818077.jar
+fi
 OUT=build
 APK=release/Daybook.apk
 KEYSTORE=debug.keystore
@@ -16,7 +23,7 @@ aapt package -f -m -J "$OUT/gen" -M AndroidManifest.xml -S res -I "$ANDROID_JAR"
     -F "$OUT/unsigned.apk"
 
 echo "2/5 compile"
-javac -nowarn -Xlint:-options --release 8 -classpath "$ANDROID_JAR" -d "$OUT/classes" \
+javac -nowarn -Xlint:-options --release 8 -classpath "$API34_JAR" -d "$OUT/classes" \
     $(find src "$OUT/gen" -name '*.java') 2>&1 | grep -v '^Picked up' || true
 test -f "$OUT/classes/com/sidsaxena/daybook/MainActivity.class"
 
