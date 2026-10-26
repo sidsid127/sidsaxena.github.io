@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Daybook</string>
+    <string name="tab_tasks">To-do</string>
+    <string name="tab_log">Activity log</string>
+    <string name="hint_task">Add a task…</string>
+    <string name="hint_log">What did you just do?</string>
+    <string name="add">Add</string>
+    <string name="empty_tasks">No tasks yet.\nType one below and tap Add.</string>
+    <string name="empty_log">Nothing logged yet.\nNote down what you did below.</string>
+    <string name="set_due">Set due date</string>
+    <string name="menu_clear_done">Clear completed tasks</string>
+    <string name="menu_share">Export / share all</string>
+</resources>
