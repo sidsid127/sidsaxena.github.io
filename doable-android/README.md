@@ -33,7 +33,9 @@ Open the ☰ side menu to switch between modules (☰ → *Show / hide modules* 
   correct, and reminders at set times or every few hours.
 - **Important dates**: birthdays (with age), anniversaries, contract renewals, expiries — with a
   reminder days before. Wallet expiry dates show up here too.
-- **Checklists**: reusable lists and templates (business trip, holiday, before leaving home…).
+- **Checklists**: reusable lists and templates (business trip, holiday, before leaving home…). Paste a
+  list from Notepad or Notes to create one, or to add the missing items to an open list; *Ticked to
+  bottom* and *Untick all* buttons for packing.
 - **Wallet**: loyalty cards (barcode shown full-screen at the till), ID, passport, driving licence,
   insurance cards — front/back photos or scans, behind your fingerprint.
 - **Activity log**: timestamped notes of what you did.

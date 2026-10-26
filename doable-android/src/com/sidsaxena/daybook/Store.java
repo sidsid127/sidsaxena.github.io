@@ -551,6 +551,55 @@ final class Store {
         w().update("checklist_items", v, "_id = ?", a(id));
     }
 
+    /** Adds pasted items that aren't on the list yet; returns {added, skipped}. */
+    int[] importCheckItems(long list, List<ChecklistText.Line> lines) {
+        java.util.Set<String> have = new java.util.HashSet<String>();
+        for (CheckItem i : checkItems(list)) have.add(ChecklistText.key(i.text));
+        int added = 0, skipped = 0;
+        SQLiteDatabase db = w();
+        db.beginTransaction();
+        try {
+            for (ChecklistText.Line l : lines) {
+                if (!have.add(ChecklistText.key(l.text))) {
+                    skipped++;
+                    continue;
+                }
+                ContentValues v = new ContentValues();
+                v.put("list", list);
+                v.put("text", l.text);
+                v.put("done", l.done ? 1 : 0);
+                v.put("position", 100000);
+                db.insert("checklist_items", null, v);
+                added++;
+            }
+            db.setTransactionSuccessful();
+        } finally {
+            db.endTransaction();
+        }
+        return new int[]{added, skipped};
+    }
+
+    /** Unticked items first (keeping their order), ticked ones at the bottom. */
+    void sortCheckedLast(long list) {
+        List<CheckItem> items = checkItems(list);
+        SQLiteDatabase db = w();
+        db.beginTransaction();
+        try {
+            int pos = 0;
+            for (int pass = 0; pass < 2; pass++) {
+                for (CheckItem i : items) {
+                    if (i.done != (pass == 1)) continue;
+                    ContentValues v = new ContentValues();
+                    v.put("position", pos++);
+                    db.update("checklist_items", v, "_id = ?", a(i.id));
+                }
+            }
+            db.setTransactionSuccessful();
+        } finally {
+            db.endTransaction();
+        }
+    }
+
     void deleteCheckItem(long id) {
         w().delete("checklist_items", "_id = ?", a(id));
     }

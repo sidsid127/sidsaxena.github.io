@@ -74,13 +74,11 @@ final class ShareIn {
                                 break;
                             }
                             default: {
-                                String[] lines = text.split("\n");
-                                String title = lines.length > 1 ? lines[0].trim() : "Shared list";
-                                long id = a.st.addChecklist(title, false, 0);
-                                for (int k = lines.length > 1 ? 1 : 0; k < lines.length; k++) {
-                                    String l = lines[k].replaceFirst("^[-•*☐☑\\s]+", "").trim();
-                                    if (!l.isEmpty()) a.st.addCheckItem(id, l);
-                                }
+                                String heading = ChecklistText.heading(text);
+                                List<ChecklistText.Line> lines = ChecklistText.parse(text);
+                                if (heading != null && !lines.isEmpty()) lines.remove(0);
+                                long id = a.st.addChecklist(heading != null ? heading : "Shared list", false, 0);
+                                a.st.importCheckItems(id, lines);
                                 a.go("checklists", id, null);
                             }
                         }

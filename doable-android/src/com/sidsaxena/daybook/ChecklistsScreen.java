@@ -25,7 +25,7 @@ import java.util.List;
  */
 class ChecklistsScreen extends Page {
 
-    private static final int MENU_RESET = 190, MENU_RENAME = 191, MENU_TEMPLATE = 192, MENU_DELETE = 193, MENU_SHARE = 194;
+    private static final int MENU_PASTE = 190, MENU_RENAME = 191, MENU_TEMPLATE = 192, MENU_DELETE = 193, MENU_SHARE = 194;
 
     private boolean templates;
     private Store.Checklist open;   // null = overview
@@ -102,6 +102,11 @@ class ChecklistsScreen extends Page {
             tabs.addView(chip);
         }
         body.addView(tabs);
+        TextView paste = Util.chip(a, "📋 Paste a list from Notepad, Notes…", Util.color(a, R.color.primary), false);
+        paste.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) { pasteDialog(null); }
+        });
+        body.addView(paste);
         List<Store.Checklist> lists = st.checklists(templates);
         if (lists.isEmpty()) {
             empty(templates ? "No templates yet.\nTap + to make one, e.g. for a business trip."
@@ -128,6 +133,36 @@ class ChecklistsScreen extends Page {
         TextView progress = header(templates ? "Template · " + items.size() + " items"
                 : done + " of " + items.size() + " done" + (items.size() > 0 && done == items.size() ? " 🎉" : ""));
         progress.setGravity(Gravity.START);
+
+        if (!items.isEmpty()) {
+            LinearLayout buttons = new LinearLayout(a);
+            buttons.setPadding(0, 0, 0, dp(4));
+            buttons.addView(pill("⇅ Ticked to bottom", false, new Runnable() {
+                public void run() {
+                    st.sortCheckedLast(open.id);
+                    render();
+                }
+            }));
+            if (done > 0) {
+                buttons.addView(pill("↺ Untick all", false, new Runnable() {
+                    public void run() {
+                        Util.confirm(a, "Untick all items?", "Ready to use this list again next time.", "Untick all", new Runnable() {
+                            public void run() {
+                                st.resetChecklist(open.id);
+                                render();
+                            }
+                        });
+                    }
+                }));
+            }
+            buttons.addView(pill("📋 Paste", false, new Runnable() {
+                public void run() { pasteDialog(open); }
+            }));
+            android.widget.HorizontalScrollView hs = new android.widget.HorizontalScrollView(a);
+            hs.setHorizontalScrollBarEnabled(false);
+            hs.addView(buttons);
+            body.addView(hs);
+        }
 
         LinearLayout card = card();
         for (final Store.CheckItem i : items) {
@@ -228,7 +263,7 @@ class ChecklistsScreen extends Page {
     @Override
     void onCreateMenu(Menu menu) {
         if (open == null) return;
-        if (!templates) menu.add(0, MENU_RESET, 0, "Untick all (reuse)");
+        menu.add(0, MENU_PASTE, 0, "Paste items from text");
         menu.add(0, MENU_SHARE, 1, "Share as text");
         menu.add(0, MENU_RENAME, 2, "Rename");
         menu.add(0, MENU_TEMPLATE, 3, templates ? "Start a checklist from this" : "Save as template");
@@ -239,9 +274,8 @@ class ChecklistsScreen extends Page {
     boolean onMenu(int id) {
         if (open == null) return false;
         switch (id) {
-            case MENU_RESET:
-                st.resetChecklist(open.id);
-                render();
+            case MENU_PASTE:
+                pasteDialog(open);
                 return true;
             case MENU_SHARE:
                 StringBuilder sb = new StringBuilder(open.title).append('\n');
@@ -299,6 +333,71 @@ class ChecklistsScreen extends Page {
                 else render();
             }
         });
+    }
+
+    /**
+     * Paste a list: into {@code into} (only items not there yet), or as a new checklist when null.
+     * The clipboard is filled in already when it holds text.
+     */
+    private void pasteDialog(final Store.Checklist into) {
+        LinearLayout box = Util.dialogBox(a);
+        final EditText name = Util.field(a, "");
+        if (into == null) {
+            box.addView(Util.label(a, "Name (optional)"));
+            name.setHint("e.g. Camping");
+            box.addView(name);
+        }
+        box.addView(Util.label(a, "Items — one per line"));
+        final EditText text = Util.field(a, "");
+        text.setMinLines(6);
+        text.setMaxLines(12);
+        text.setGravity(Gravity.TOP);
+        text.setHint("Passport\nCharger\nSocks…");
+        android.content.ClipboardManager cm = (android.content.ClipboardManager) a.getSystemService(android.content.Context.CLIPBOARD_SERVICE);
+        if (cm != null && cm.hasPrimaryClip() && cm.getPrimaryClip().getItemCount() > 0) {
+            CharSequence clip = cm.getPrimaryClip().getItemAt(0).coerceToText(a);
+            if (clip != null && clip.toString().contains("\n")) text.setText(clip);
+        }
+        box.addView(text);
+        TextView tip = new TextView(a);
+        tip.setText("Bullets, numbers and ☐ are removed; ☑ or [x] items stay ticked."
+                + (into != null ? " Items already on the list are skipped." : ""));
+        tip.setTextColor(Util.color(a, R.color.muted));
+        tip.setTextSize(12);
+        box.addView(tip);
+        android.widget.ScrollView sv = new android.widget.ScrollView(a);
+        sv.addView(box);
+        new AlertDialog.Builder(a)
+                .setTitle(into == null ? "New checklist from text" : "Add items to \"" + into.title + "\"")
+                .setView(sv)
+                .setPositiveButton(into == null ? "Create" : "Add", new DialogInterface.OnClickListener() {
+                    public void onClick(DialogInterface d, int which) {
+                        String pasted = text.getText().toString();
+                        String heading = ChecklistText.heading(pasted);
+                        List<ChecklistText.Line> lines = ChecklistText.parse(pasted);
+                        if (heading != null && !lines.isEmpty()) lines.remove(0);
+                        if (lines.isEmpty()) {
+                            android.widget.Toast.makeText(a, "No items found", android.widget.Toast.LENGTH_SHORT).show();
+                            return;
+                        }
+                        long id;
+                        if (into == null) {
+                            String n = name.getText().toString().trim();
+                            if (n.isEmpty()) n = heading != null ? heading : "Pasted list";
+                            id = st.addChecklist(n, templates, 0);
+                        } else {
+                            id = into.id;
+                        }
+                        int[] r = st.importCheckItems(id, lines);
+                        android.widget.Toast.makeText(a, r[0] + " item" + (r[0] == 1 ? "" : "s") + " added"
+                                + (r[1] > 0 ? " · " + r[1] + " already on the list" : ""), android.widget.Toast.LENGTH_LONG).show();
+                        if (into == null) open(id);
+                        else render();
+                    }
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+        if (text.length() == 0) Util.showKeyboard(text);
     }
 
     private void newList() {
