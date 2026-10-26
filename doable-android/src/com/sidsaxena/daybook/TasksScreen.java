@@ -379,7 +379,19 @@ class TasksScreen extends Screen {
             g.add(t);
         }
         grouped = nonEmpty > 1;
-        if (!grouped) {
+        if (smart.equals("today") && overdue > 0) {
+            // Today view: what's left over from earlier days first, oldest on top, so it isn't lost.
+            List<Db.Task> earlier = new ArrayList<Db.Task>();
+            for (Db.Task t : open) if (t.due > 0 && t.due < today) earlier.add(t);
+            Collections.sort(earlier, new Comparator<Db.Task>() {
+                public int compare(Db.Task x, Db.Task y) { return x.due < y.due ? -1 : x.due > y.due ? 1 : 0; }
+            });
+            rows.add(new Util.Header("⏰ Still open from earlier days", Util.color(a, R.color.overdue)));
+            rows.addAll(earlier);
+            open.removeAll(earlier);
+            if (!open.isEmpty()) rows.add(new Util.Header("Today", 0));
+            rows.addAll(open);
+        } else if (!grouped) {
             rows.addAll(open);
         } else {
             List<Db.Task> urgent = new ArrayList<Db.Task>();

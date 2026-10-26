@@ -7,7 +7,8 @@ no account, no internet permission, and Android cloud backup is switched off.
 Open the ☰ side menu to switch between modules (☰ → *Show / hide modules* to trim it) or make a backup;
 🔍 in the top bar searches everything. The ⋮ menu has each module's options plus the fingerprint app lock and the theme.
 
-- **Today**: tasks due, today's habits, birthdays & dates coming up, the diary prompt, the current trip and
+- **Today**: anything still open from earlier days first (overdue tasks — hold one to move it —, habits
+  not logged yesterday, a blank diary day, expired documents), then tasks due, today's habits, birthdays & dates coming up, the diary prompt, the current trip and
   the shopping list on one page, with quick-add buttons.
 - **To-do**: categories, priorities, due dates, **reminders** (with Done / Snooze on the notification),
   **repeating tasks** (daily, weekdays, weekly, every 2 weeks, monthly, yearly), **subtasks**, notes, smart

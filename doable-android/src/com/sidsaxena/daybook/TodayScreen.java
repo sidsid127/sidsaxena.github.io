@@ -68,40 +68,84 @@ class TodayScreen extends Page {
         body.addView(hs);
     }
 
-    private void tasks(long today) {
+    private void tasks(final long today) {
         if (!a.isModuleVisible("tasks")) return;
-        List<Db.Task> due = new ArrayList<Db.Task>();
-        for (Db.Task t : db.tasks()) if (!t.done && t.due != 0 && t.due <= today) due.add(t);
+        List<Db.Task> earlier = new ArrayList<Db.Task>(), due = new ArrayList<Db.Task>();
+        for (Db.Task t : db.tasks()) {
+            if (t.done || t.due == 0 || t.due > today) continue;
+            if (t.due < today) earlier.add(t);
+            else due.add(t);
+        }
+        // Oldest first, so nothing slips further down the longer it waits.
+        Collections.sort(earlier, new Comparator<Db.Task>() {
+            public int compare(Db.Task x, Db.Task y) {
+                if (x.due != y.due) return x.due < y.due ? -1 : 1;
+                return y.priority - x.priority;
+            }
+        });
         Collections.sort(due, new Comparator<Db.Task>() {
             public int compare(Db.Task x, Db.Task y) {
                 if (x.priority != y.priority) return y.priority - x.priority;
-                return x.due < y.due ? -1 : x.due > y.due ? 1 : 0;
+                return x.time - y.time;
             }
         });
+        if (!earlier.isEmpty()) {
+            header("⏰ Still open from earlier days · " + earlier.size()).setTextColor(Util.color(a, R.color.overdue));
+            LinearLayout card = card();
+            taskRows(card, earlier, today, 15);
+            if (earlier.size() > 1) {
+                link(card, "Move all " + earlier.size() + " to today", new Runnable() {
+                    public void run() { moveAll(earlier(today), today); }
+                });
+            }
+        }
         header("To-do today" + (due.isEmpty() ? "" : " · " + due.size()));
         LinearLayout card = card();
         if (due.isEmpty()) {
-            row(card, "🎉", "Nothing due today", "Tap to see all tasks", null, new Runnable() {
+            row(card, "🎉", "Nothing else due today", "Tap to see all tasks", null, new Runnable() {
                 public void run() { a.go("tasks", 0, null); }
             }, null);
             return;
         }
+        taskRows(card, due, today, 10);
+    }
+
+    private List<Db.Task> earlier(long today) {
+        List<Db.Task> out = new ArrayList<Db.Task>();
+        for (Db.Task t : db.tasks()) if (!t.done && t.due != 0 && t.due < today) out.add(t);
+        return out;
+    }
+
+    private void moveAll(List<Db.Task> tasks, long day) {
+        for (Db.Task t : tasks) {
+            t.due = day;
+            t.snooze = 0;
+            db.saveTask(t);
+        }
+        Reminders.refresh(a);
+        render();
+    }
+
+    private void taskRows(LinearLayout card, List<Db.Task> list, final long today, int max) {
         int shown = 0;
-        for (final Db.Task t : due) {
-            if (shown++ == 8) {
-                link(card, "Show all " + due.size() + " tasks", new Runnable() {
+        for (final Db.Task t : list) {
+            if (shown++ == max) {
+                link(card, "Show all " + list.size() + " in To-do", new Runnable() {
                     public void run() { a.go("tasks", 0, null); }
                 });
                 break;
             }
-            String sub = t.due < today ? Util.dueLabel(t.due) : "";
+            int late = -Util.daysFromToday(t.due);
+            String sub = late <= 0 ? "" : (late == 1 ? "From yesterday" : late + " days overdue · " + Util.shortDate(t.due));
             if (t.time >= 0) sub += (sub.isEmpty() ? "" : " · ") + "🔔 " + TasksScreen.clock(t.time);
             if (!t.repeat.isEmpty()) sub += (sub.isEmpty() ? "" : " · ") + "🔁";
             final TextView box = pill("✓", false, null);
             LinearLayout r = row(card, t.priority == 3 ? "⚑" : t.priority == 2 ? "◆" : "○", t.title, sub, box, new Runnable() {
                 public void run() { a.go("tasks", t.id, null); }
-            }, null);
-            if (t.due < today) ((TextView) ((LinearLayout) r.getChildAt(1)).getChildAt(1)).setTextColor(Util.color(a, R.color.overdue));
+            }, late > 0 ? new Runnable() {
+                public void run() { reschedule(t, today); }
+            } : null);
+            if (late > 0) ((TextView) ((LinearLayout) r.getChildAt(1)).getChildAt(1)).setTextColor(Util.color(a, R.color.overdue));
             box.setOnClickListener(new android.view.View.OnClickListener() {
                 public void onClick(android.view.View v) {
                     TaskOps.setDone(db, t, true);
@@ -110,6 +154,28 @@ class TodayScreen extends Page {
                 }
             });
         }
+    }
+
+    /** Long-press on an overdue task: move it, or open it. */
+    private void reschedule(final Db.Task t, final long today) {
+        new android.app.AlertDialog.Builder(a)
+                .setTitle(t.title)
+                .setItems(new String[]{"Move to today", "Move to tomorrow", "Move to next week", "Open"},
+                        new android.content.DialogInterface.OnClickListener() {
+                            public void onClick(android.content.DialogInterface d, int which) {
+                                if (which == 3) {
+                                    a.go("tasks", t.id, null);
+                                    return;
+                                }
+                                Calendar c = Calendar.getInstance();
+                                c.setTimeInMillis(today);
+                                c.add(Calendar.DAY_OF_MONTH, which == 0 ? 0 : which == 1 ? 1 : 7);
+                                List<Db.Task> one = new ArrayList<Db.Task>();
+                                one.add(t);
+                                moveAll(one, Util.startOfDay(c.getTimeInMillis()));
+                            }
+                        })
+                .show();
     }
 
     private void habits(final long today) {
@@ -137,6 +203,44 @@ class TodayScreen extends Page {
                 public void run() { a.go("habits", h.id, null); }
             }, null);
         }
+        yesterdayHabits(card, today);
+    }
+
+    /** Build habits that were due yesterday but never logged: offer to log them now. */
+    private void yesterdayHabits(LinearLayout card, long today) {
+        Calendar c = Calendar.getInstance();
+        c.setTimeInMillis(today);
+        c.add(Calendar.DAY_OF_MONTH, -1);
+        final long yesterday = Util.startOfDay(c.getTimeInMillis());
+        final List<Store.Habit> missed = new ArrayList<Store.Habit>();
+        for (Store.Habit h : st.habits(false)) {
+            if (!h.quit && h.created <= yesterday && HabitLogic.scheduled(h.days, c) && st.habitCount(h.id, yesterday) < h.target) missed.add(h);
+        }
+        if (missed.isEmpty()) return;
+        StringBuilder names = new StringBuilder();
+        for (Store.Habit h : missed) names.append(names.length() == 0 ? "" : ", ").append(h.name);
+        row(card, "↩", "Yesterday not logged", names + " · tap if you did them", null, new Runnable() {
+            public void run() {
+                final String[] items = new String[missed.size()];
+                final boolean[] on = new boolean[missed.size()];
+                for (int i = 0; i < items.length; i++) items[i] = missed.get(i).name;
+                new android.app.AlertDialog.Builder(a)
+                        .setTitle("Done yesterday?")
+                        .setMultiChoiceItems(items, on, new android.content.DialogInterface.OnMultiChoiceClickListener() {
+                            public void onClick(android.content.DialogInterface d, int which, boolean checked) { on[which] = checked; }
+                        })
+                        .setPositiveButton("Save", new android.content.DialogInterface.OnClickListener() {
+                            public void onClick(android.content.DialogInterface d, int which) {
+                                for (int i = 0; i < on.length; i++) {
+                                    if (on[i]) st.setHabitCount(missed.get(i).id, yesterday, missed.get(i).target);
+                                }
+                                render();
+                            }
+                        })
+                        .setNegativeButton("Cancel", null)
+                        .show();
+            }
+        }, null);
     }
 
     private void dates(long today) {
@@ -144,23 +248,27 @@ class TodayScreen extends Page {
         final List<Object[]> soon = new ArrayList<Object[]>();
         for (Store.DateItem d : st.dates()) {
             long occ = Store.nextOccurrence(d, today);
-            if (occ >= today && Util.daysFromToday(occ) <= 7) soon.add(new Object[]{occ, d});
+            int days = Util.daysFromToday(occ);
+            // Upcoming week, plus things that passed without being dealt with: one-off dates of the last
+            // week (contract renewal, appointment) and documents that have expired.
+            if ((days >= 0 && days <= 7) || (days < 0 && (d.fromWallet || days >= -7))) soon.add(new Object[]{occ, d});
         }
         if (soon.isEmpty()) return;
         Collections.sort(soon, new Comparator<Object[]>() {
             public int compare(Object[] x, Object[] y) { return Long.compare((Long) x[0], (Long) y[0]); }
         });
-        header("Coming up");
+        header("Dates");
         LinearLayout card = card();
         for (Object[] o : soon) {
             final Store.DateItem d = (Store.DateItem) o[1];
             long occ = (Long) o[0];
-            row(card, DatesScreen.emoji(d), d.title, DatesScreen.when(d, occ), null, new Runnable() {
+            LinearLayout r = row(card, DatesScreen.emoji(d), d.title, DatesScreen.when(d, occ), null, new Runnable() {
                 public void run() {
                     if (d.fromWallet) a.go("wallet", d.walletId, null);
                     else a.go("dates", d.id, null);
                 }
             }, null);
+            if (occ < today) ((TextView) ((LinearLayout) r.getChildAt(1)).getChildAt(1)).setTextColor(Util.color(a, R.color.overdue));
         }
     }
 
@@ -178,6 +286,17 @@ class TodayScreen extends Page {
             if (text.length() > 80) text = text.substring(0, 80) + "…";
             row(card, d.mood > 0 ? DiaryScreen.MOODS[d.mood] : "📖", "Today's entry", text, null, new Runnable() {
                 public void run() { a.go("diary", today, null); }
+            }, null);
+        }
+        // Yesterday left blank (only once the diary is in use, so new users aren't nagged).
+        Calendar c = Calendar.getInstance();
+        c.setTimeInMillis(today);
+        c.add(Calendar.DAY_OF_MONTH, -1);
+        final long yesterday = Util.startOfDay(c.getTimeInMillis());
+        Db.Diary y = db.diaryFor(yesterday);
+        if ((y == null || y.isEmpty()) && !db.diary().isEmpty()) {
+            row(card, "↩", "Yesterday has no entry", "Write it while you still remember", null, new Runnable() {
+                public void run() { a.go("diary", yesterday, null); }
             }, null);
         }
     }
