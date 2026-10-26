@@ -4,8 +4,8 @@ An offline organiser: to-do list, notes, groceries, passwords, diary, trips, hab
 checklists and a wallet. All data stays on the phone:
 no account, no internet permission, and Android cloud backup is switched off.
 
-Open the ☰ side menu to switch between modules (☰ → *Show / hide modules* to trim it), search everything,
-or make a backup. The ⋮ menu has each module's options plus the fingerprint app lock and the theme.
+Open the ☰ side menu to switch between modules (☰ → *Show / hide modules* to trim it) or make a backup;
+🔍 in the top bar searches everything. The ⋮ menu has each module's options plus the fingerprint app lock and the theme.
 
 - **Today**: tasks due, today's habits, birthdays & dates coming up, the diary prompt, the current trip and
   the shopping list on one page, with quick-add buttons.
@@ -44,11 +44,15 @@ checklist, and photos / PDFs into a note, trip receipt, wallet document or diary
 
 ### Backup (important)
 
-☰ → *Backup & restore* → *Create backup* writes **one encrypted file** (AES-256, your own password)
-with everything: data, photos, receipts, voice notes, settings, passwords and locked notes. Android asks
-where to save it — choose Google Drive, Downloads (then copy it to your PC), a USB stick, or e-mail it to
-yourself. On a new phone: install Doable, then *Backup & restore* → *Restore* and pick the file.
-Doable itself never connects to the internet.
+☰ → *Backup & restore* → *Automatic backup*: choose **daily, weekly or monthly**, a password and a folder
+once. Doable then keeps **one file**, `Doable backup.doable`, in that folder and replaces it at each backup
+(the new file is written first, so a failed run never destroys the previous backup). Backups run when you
+leave the app and one is due. Pick a folder your cloud app syncs, or copy the file to your PC now and then.
+*Back up now* makes a one-off file wherever you like.
+
+Each backup is **one encrypted file** (AES-256, your own password) with everything: data, photos,
+receipts, voice notes, settings, passwords and locked notes. On a new phone: install Doable, then
+*Backup & restore* → *Restore* and pick the file. Doable itself never connects to the internet.
 
 ### What it can't do (it's offline)
 

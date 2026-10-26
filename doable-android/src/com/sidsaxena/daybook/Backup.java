@@ -47,24 +47,50 @@ final class Backup {
 
     static void show(final MainActivity a) {
         long last = a.prefs.getLong("lastBackup", 0);
-        String msg = "A backup is one encrypted file with all your data: tasks, notes, diary, trips, receipts and photos, "
-                + "passwords, wallet and settings.\n\n"
-                + "Doable never uploads anything. When you create a backup, Android asks where to save it: pick "
-                + "Google Drive, \"Downloads\" (then copy it to your PC by USB), a USB stick, or e-mail it to yourself. "
-                + "Keep it somewhere other than this phone.\n\n"
-                + "To move to a new phone: install Doable there, open the menu → Backup & restore → Restore, and pick the file.\n\n"
-                + (last == 0 ? "No backup made yet." : "Last backup: " + Util.fullTimestamp(a, last));
-        new AlertDialog.Builder(a)
+        LinearLayout box = Util.dialogBox(a);
+        TextView intro = new TextView(a);
+        intro.setText("A backup is one encrypted file with all your data: tasks, notes, diary, trips, receipts and photos, "
+                + "passwords, wallet and settings. Doable never uploads anything — you choose where the file goes. "
+                + "Keep a copy somewhere other than this phone (PC, USB stick or a folder your cloud app syncs).\n\n"
+                + "New phone? Install Doable there, open Backup & restore → Restore, and pick the file.");
+        intro.setTextColor(Util.color(a, R.color.text));
+        box.addView(intro);
+        TextView status = new TextView(a);
+        String auto = AutoBackup.status(a);
+        status.setText(auto + "\n" + (last == 0 ? "No backup made by hand yet." : "Last backup by hand: " + Util.fullTimestamp(a, last)));
+        status.setTextColor(Util.color(a, AutoBackup.hasProblem(a) ? R.color.overdue : R.color.muted));
+        status.setPadding(0, Util.dp(a, 12), 0, Util.dp(a, 4));
+        box.addView(status);
+        final AlertDialog[] dlg = new AlertDialog[1];
+        action(a, box, "⏱  Automatic backup…", new Runnable() {
+            public void run() { dlg[0].dismiss(); AutoBackup.setup(a); }
+        });
+        action(a, box, "💾  Back up now (choose where)", new Runnable() {
+            public void run() { dlg[0].dismiss(); create(a); }
+        });
+        action(a, box, "↩  Restore from a backup", new Runnable() {
+            public void run() { dlg[0].dismiss(); pickRestore(a); }
+        });
+        android.widget.ScrollView sv = new android.widget.ScrollView(a);
+        sv.addView(box);
+        dlg[0] = new AlertDialog.Builder(a)
                 .setTitle("Backup & restore")
-                .setMessage(msg)
-                .setPositiveButton("Create backup", new DialogInterface.OnClickListener() {
-                    public void onClick(DialogInterface d, int which) { create(a); }
-                })
-                .setNeutralButton("Restore", new DialogInterface.OnClickListener() {
-                    public void onClick(DialogInterface d, int which) { pickRestore(a); }
-                })
+                .setView(sv)
                 .setNegativeButton("Close", null)
                 .show();
+    }
+
+    private static void action(Context c, LinearLayout box, String text, final Runnable run) {
+        TextView t = new TextView(c);
+        t.setText(text);
+        t.setTextSize(16);
+        t.setTextColor(Util.color(c, R.color.primary_text));
+        t.setPadding(Util.dp(c, 4), Util.dp(c, 14), Util.dp(c, 4), Util.dp(c, 14));
+        t.setBackgroundResource(android.R.drawable.list_selector_background);
+        t.setOnClickListener(new android.view.View.OnClickListener() {
+            public void onClick(android.view.View v) { run.run(); }
+        });
+        box.addView(t);
     }
 
     private static void create(final MainActivity a) {
@@ -92,7 +118,12 @@ final class Backup {
                             Toast.makeText(a, "The passwords don't match", Toast.LENGTH_LONG).show();
                             return;
                         }
-                        collectSecrets(a, pw.toCharArray());
+                        final char[] chars = pw.toCharArray();
+                        collectSecrets(a, new Secrets() {
+                            public void got(byte[] vaultKey, boolean vaultAuth, byte[] notesKey) {
+                                chooseFile(a, chars, vaultKey, vaultAuth, notesKey);
+                            }
+                        });
                     }
                 })
                 .setNegativeButton("Cancel", null)
@@ -100,15 +131,20 @@ final class Backup {
         Util.showKeyboard(p1);
     }
 
-    private static EditText password(Context c, String hint) {
+    static EditText password(Context c, String hint) {
         EditText f = new EditText(c);
         f.setHint(hint);
         f.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
         return f;
     }
 
+    interface Secrets {
+        /** Keys are null when there are no passwords / locked notes. */
+        void got(byte[] vaultKey, boolean vaultAuth, byte[] notesKey);
+    }
+
     /** Passwords and locked notes are protected by the phone's Keystore; their keys need a fingerprint first. */
-    private static void collectSecrets(final MainActivity a, final char[] pw) {
+    static void collectSecrets(final MainActivity a, final Secrets result) {
         final Vault vault = new Vault(a);
         final SecureBox box = new SecureBox(a);
         boolean needAuth = (vault.exists() && vault.requiresAuth()) || box.exists();
@@ -132,7 +168,7 @@ final class Backup {
                     Toast.makeText(a, "Couldn't unlock passwords / locked notes for the backup. Please try again.", Toast.LENGTH_LONG).show();
                     return;
                 }
-                chooseFile(a, pw, vk, vAuth, nk);
+                result.got(vk, vAuth, nk);
             }
         };
         if (!needAuth) {
@@ -152,7 +188,7 @@ final class Backup {
             public void onUri(final Uri uri) {
                 final File snapshot;
                 try {
-                    snapshot = snapshotDb(a);
+                    snapshot = snapshotDb(a, "backup.db");
                 } catch (IOException e) {
                     Toast.makeText(a, "Backup failed: " + e.getMessage(), Toast.LENGTH_LONG).show();
                     return;
@@ -193,12 +229,12 @@ final class Backup {
     }
 
     /** A consistent copy of the database, taken on the UI thread so nothing changes meanwhile. */
-    private static File snapshotDb(MainActivity a) throws IOException {
+    static File snapshotDb(MainActivity a, String name) throws IOException {
         SQLiteDatabase db = a.db.getWritableDatabase();
         Cursor c = db.rawQuery("PRAGMA wal_checkpoint(TRUNCATE)", null);
         c.moveToFirst();
         c.close();
-        File out = new File(a.getCacheDir(), "backup.db");
+        File out = new File(a.getCacheDir(), name);
         copy(new FileInputStream(a.getDatabasePath(DB)), new FileOutputStream(out));
         return out;
     }
@@ -488,7 +524,7 @@ final class Backup {
 
     // ---------------------------------------------------------------- files
 
-    private static void copy(InputStream in, OutputStream out) throws IOException {
+    static void copy(InputStream in, OutputStream out) throws IOException {
         try {
             byte[] buf = new byte[65536];
             int n;

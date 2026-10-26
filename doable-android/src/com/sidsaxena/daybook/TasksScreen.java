@@ -156,7 +156,7 @@ class TasksScreen extends Screen {
 
     @Override
     String title() {
-        return a.getString(R.string.app_name);
+        return a.getString(R.string.module_tasks);
     }
 
     @Override

@@ -139,6 +139,18 @@ public class Vault {
         wrapKey(new SecretKeySpec(raw, "AES"), auth);
     }
 
+    /** True if {@code raw} still decrypts the saved passwords (or there are none yet). For automatic backups. */
+    static boolean keyOpens(Context c, byte[] raw) {
+        Vault v = new Vault(c);
+        if (!v.file.exists()) return true;
+        try {
+            decrypt(new SecretKeySpec(raw, "AES"), v.readFile());
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
     /** Deletes everything, e.g. after the Keystore key became unusable. */
     public void reset() {
         close();

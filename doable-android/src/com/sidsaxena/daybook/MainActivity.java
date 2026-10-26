@@ -49,6 +49,7 @@ public class MainActivity extends Activity {
     private static final int REQ_SCAN = 4;
     private static final int REQ_OPEN_DOC = 5;
     private static final int REQ_CREATE_DOC = 6;
+    private static final int REQ_TREE = 9;
 
     interface UriPicked {
         void onUri(android.net.Uri uri);
@@ -352,6 +353,7 @@ public class MainActivity extends Activity {
         super.onStop();
         if (authInProgress || isChangingConfigurations()) return;
         current.onStop();
+        AutoBackup.runIfDue(this);
         new Thread(new Runnable() {
             public void run() { Reminders.refresh(getApplicationContext()); }
         }).start();
@@ -432,9 +434,6 @@ public class MainActivity extends Activity {
             drawerItems.addView(row);
         }
         divider();
-        drawerAction(R.drawable.ic_search, "Search everything", new Runnable() {
-            public void run() { Search.open(MainActivity.this); }
-        });
         drawerAction(R.drawable.ic_backup, "Backup & restore", new Runnable() {
             public void run() { Backup.show(MainActivity.this); }
         });
@@ -684,6 +683,19 @@ public class MainActivity extends Activity {
         }
     }
 
+    /** Lets the user pick a folder Doable may keep writing to (automatic backups). */
+    void openFolder(UriPicked cb) {
+        Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+        pendingUri = cb;
+        leavingForExternal = true;
+        try {
+            startActivityForResult(i, REQ_TREE);
+        } catch (RuntimeException e) {
+            pendingUri = null;
+            Toast.makeText(this, "No folder picker on this phone", Toast.LENGTH_SHORT).show();
+        }
+    }
+
     String readText(android.net.Uri uri) throws java.io.IOException {
         java.io.InputStream in = getContentResolver().openInputStream(uri);
         if (in == null) throw new java.io.IOException("Cannot open file");
@@ -827,6 +839,20 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        if (requestCode == REQ_TREE && pendingUri != null) {
+            UriPicked cb = pendingUri;
+            pendingUri = null;
+            if (resultCode == RESULT_OK && data != null && data.getData() != null) {
+                try {
+                    getContentResolver().takePersistableUriPermission(data.getData(),
+                            Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+                } catch (SecurityException ignored) {
+                    // still usable until the app restarts
+                }
+                cb.onUri(data.getData());
+            }
+            return;
+        }
         if ((requestCode == REQ_OPEN_DOC || requestCode == REQ_CREATE_DOC) && pendingUri != null) {
             UriPicked cb = pendingUri;
             pendingUri = null;
