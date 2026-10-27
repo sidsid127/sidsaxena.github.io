@@ -194,6 +194,10 @@ public class MainActivity extends Activity {
     /** Opens what a notification, widget, shortcut or share asked for. */
     private void handleIntent(Intent i) {
         if (i == null) return;
+        if (GoogleDrive.handleRedirect(this, i.getData())) {
+            setIntent(new Intent(this, MainActivity.class));
+            return;
+        }
         boolean share = ShareIn.isShare(i);
         if (!share && i.getStringExtra("module") == null) return;
         if (locked) {

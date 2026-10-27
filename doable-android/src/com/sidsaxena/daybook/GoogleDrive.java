@@ -14,9 +14,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
-import java.net.InetAddress;
-import java.net.ServerSocket;
-import java.net.Socket;
 import java.net.URL;
 import java.net.URLEncoder;
 import java.security.MessageDigest;
@@ -25,15 +22,15 @@ import java.util.Map;
 
 /**
  * Google sign-in and the few Drive calls sync needs, with plain HttpURLConnection (no Google libraries).
- * Sign-in follows Google's flow for installed apps: the browser opens Google's page, Google redirects to a
- * one-off local address on this phone (127.0.0.1) with a code, which is exchanged for tokens (with PKCE).
+ * Sign-in follows Google's flow for installed apps: the browser opens Google's page, Google redirects to
+ * Doable's own address (com.googleusercontent.apps.…:/oauth2redirect) with a code, which is exchanged for
+ * tokens with PKCE. The client has no secret, so nothing secret is built into the app.
  * Only the hidden app folder of Drive is accessible (scope drive.appdata).
  */
 final class GoogleDrive {
 
-    /** "Desktop app" OAuth client from Google Cloud (see doable/GOOGLE-SETUP.md); can also be entered in the app. */
+    /** OAuth client of type "iOS" from Google Cloud (it has no secret; see doable/GOOGLE-SETUP.md). */
     static final String DEFAULT_CLIENT_ID = "";
-    static final String DEFAULT_CLIENT_SECRET = ""; // Google: not confidential for installed apps
 
     private static final String SCOPE = "https://www.googleapis.com/auth/drive.appdata email";
     private static final String API = "https://www.googleapis.com/drive/v3";
@@ -56,9 +53,6 @@ final class GoogleDrive {
         return prefs(c).getString("clientId", DEFAULT_CLIENT_ID);
     }
 
-    static String clientSecret(Context c) {
-        return prefs(c).getString("clientSecret", DEFAULT_CLIENT_SECRET);
-    }
 
     // ---------------------------------------------------------------- sign-in
 
@@ -74,94 +68,68 @@ final class GoogleDrive {
         }
     }
 
-    /** Opens Google sign-in in the browser; calls back on the UI thread. */
-    static void signIn(final MainActivity a, final SignedIn cb) {
-        final String verifier = b64url(SyncCrypto.random(48));
-        final String state = b64url(SyncCrypto.random(12));
-        final ServerSocket server;
-        final String redirect;
+    private static SignedIn pending; // callback of the sign-in in progress (null if the app was restarted meanwhile)
+
+    /** The redirect Google sends the browser back to; Android opens Doable for it (see the manifest). */
+    static String redirectUri(Context c) {
+        return "com.googleusercontent.apps." + clientId(c).replace(".apps.googleusercontent.com", "") + ":/oauth2redirect";
+    }
+
+    /** Opens Google sign-in in the browser; Doable gets the answer back through {@link #handleRedirect}. */
+    static void signIn(MainActivity a, SignedIn cb) {
+        String verifier = b64url(SyncCrypto.random(48));
+        String state = b64url(SyncCrypto.random(12));
         String challenge;
         try {
-            server = new ServerSocket(0, 1, InetAddress.getByName("127.0.0.1"));
-            server.setSoTimeout(5 * 60 * 1000);
-            redirect = "http://127.0.0.1:" + server.getLocalPort();
             challenge = b64url(MessageDigest.getInstance("SHA-256").digest(verifier.getBytes("US-ASCII")));
         } catch (Exception e) {
             cb.done("Could not start sign-in: " + e.getMessage());
             return;
         }
-        String url = "https://accounts.google.com/o/oauth2/v2/auth?client_id=" + enc(clientId(a)) + "&redirect_uri=" + enc(redirect)
+        pending = cb;
+        prefs(a).edit().putString("pkce", verifier).putString("state", state).commit();
+        String url = "https://accounts.google.com/o/oauth2/v2/auth?client_id=" + enc(clientId(a)) + "&redirect_uri=" + enc(redirectUri(a))
                 + "&response_type=code&scope=" + enc(SCOPE) + "&code_challenge=" + challenge + "&code_challenge_method=S256"
                 + "&state=" + state + "&access_type=offline&prompt=consent";
-        final Context app = a.getApplicationContext();
-        new Thread(new Runnable() {
-            public void run() {
-                String error = null;
-                try {
-                    Socket s = server.accept();
-                    Map<String, String> q = readRequest(s);
-                    String code = q.get("code");
-                    boolean ok = code != null && state.equals(q.get("state"));
-                    respond(s, ok);
-                    if (!ok) throw new IOException(q.containsKey("error") ? "Google sign-in: " + q.get("error") : "Sign-in was not completed");
-                    exchange(app, "code=" + enc(code) + "&code_verifier=" + verifier + "&redirect_uri=" + enc(redirect) + "&grant_type=authorization_code");
-                } catch (java.net.SocketTimeoutException e) {
-                    error = "Sign-in timed out";
-                } catch (Exception e) {
-                    error = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
-                } finally {
-                    try {
-                        server.close();
-                    } catch (IOException ignored) {
-                    }
-                }
-                final String err = error;
-                a.runOnUiThread(new Runnable() {
-                    public void run() { cb.done(err); }
-                });
-            }
-        }).start();
         a.startExternal(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
     }
 
-    private static Map<String, String> readRequest(Socket s) throws IOException {
-        s.setSoTimeout(15000);
-        InputStream in = s.getInputStream();
-        StringBuilder line = new StringBuilder();
-        int ch;
-        while ((ch = in.read()) >= 0 && ch != '\n') line.append((char) ch);
-        Map<String, String> out = new HashMap<String, String>();
-        String[] parts = line.toString().split(" ");
-        if (parts.length < 2) return out;
-        int q = parts[1].indexOf('?');
-        if (q < 0) return out;
-        for (String kv : parts[1].substring(q + 1).split("&")) {
-            int eq = kv.indexOf('=');
-            if (eq > 0) out.put(kv.substring(0, eq), Uri.decode(kv.substring(eq + 1)));
-        }
-        return out;
-    }
-
-    private static void respond(Socket s, boolean ok) throws IOException {
-        String back = "intent://sync#Intent;scheme=doable;package=com.sidsaxena.daybook;end";
-        String html = "<!doctype html><meta name=viewport content='width=device-width,initial-scale=1'><title>Doable</title>"
-                + "<body style='font:18px sans-serif;text-align:center;padding:40px 20px;color:#3F2CB8'>"
-                + (ok ? "<h2>Signed in ✓</h2><p>Go back to Doable to finish.</p>" : "<h2>Sign-in not completed</h2>")
-                + "<p><a href='" + back + "' style='display:inline-block;padding:14px 22px;background:#3F2CB8;color:#fff;border-radius:12px;"
-                + "text-decoration:none'>Return to Doable</a></p><script>setTimeout(function(){location.href='" + back + "'},400)</script>";
-        byte[] body = html.getBytes("UTF-8");
-        OutputStream out = s.getOutputStream();
-        out.write(("HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: " + body.length
-                + "\r\nConnection: close\r\n\r\n").getBytes("US-ASCII"));
-        out.write(body);
-        out.flush();
-        s.close();
+    /** True if the intent was Google's answer; finishes sign-in in the background and reports on the UI thread. */
+    static boolean handleRedirect(final MainActivity a, Uri data) {
+        if (data == null || data.getScheme() == null || !data.getScheme().startsWith("com.googleusercontent.apps.")) return false;
+        final Context app = a.getApplicationContext();
+        final String code = data.getQueryParameter("code"), state = data.getQueryParameter("state"), error = data.getQueryParameter("error");
+        final SignedIn cb = pending;
+        pending = null;
+        new Thread(new Runnable() {
+            public void run() {
+                String err = null;
+                try {
+                    SharedPreferences p = prefs(app);
+                    if (code == null || !p.getString("state", "-").equals(state)) {
+                        throw new IOException(error != null ? "Google sign-in: " + error : "Sign-in was not completed");
+                    }
+                    exchange(app, "code=" + enc(code) + "&code_verifier=" + p.getString("pkce", "") + "&redirect_uri=" + enc(redirectUri(app))
+                            + "&grant_type=authorization_code");
+                    p.edit().remove("pkce").remove("state").apply();
+                } catch (Exception e) {
+                    err = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
+                }
+                final String result = err;
+                a.runOnUiThread(new Runnable() {
+                    public void run() {
+                        if (cb != null) cb.done(result);
+                        else SyncUi.signedIn(a, result);
+                    }
+                });
+            }
+        }).start();
+        return true;
     }
 
     /** Token endpoint: stores the refresh token (wrapped) and caches the access token. */
     private static void exchange(Context c, String form) throws Exception {
-        JSONObject j = new JSONObject(post("https://oauth2.googleapis.com/token", "client_id=" + enc(clientId(c))
-                + (clientSecret(c).isEmpty() ? "" : "&client_secret=" + enc(clientSecret(c))) + "&" + form));
+        JSONObject j = new JSONObject(post("https://oauth2.googleapis.com/token", "client_id=" + enc(clientId(c)) + "&" + form));
         if (j.has("error")) throw new AuthException("Google: " + j.optString("error_description", j.optString("error")));
         SharedPreferences.Editor e = prefs(c).edit();
         if (j.has("refresh_token")) e.putString("refresh", Secrets.wrap(ALIAS, j.getString("refresh_token")));

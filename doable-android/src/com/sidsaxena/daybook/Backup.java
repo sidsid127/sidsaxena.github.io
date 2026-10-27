@@ -23,10 +23,7 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.text.SimpleDateFormat;
-import java.util.Date;
 import java.util.Iterator;
-import java.util.Locale;
 import java.util.Map;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
@@ -41,7 +38,6 @@ final class Backup {
     private Backup() {}
 
     private static final String DB = "daybook.db";
-    private static final int MIN_PASSWORD = 8;
 
     // ---------------------------------------------------------------- UI
 
@@ -57,7 +53,7 @@ final class Backup {
         box.addView(intro);
         TextView status = new TextView(a);
         String auto = AutoBackup.status(a);
-        status.setText(auto + "\n" + (last == 0 ? "No backup made by hand yet." : "Last backup by hand: " + Util.fullTimestamp(a, last)));
+        status.setText(auto + (last == 0 ? "" : "\nLast backup in a file you chose: " + Util.fullTimestamp(a, last)));
         status.setTextColor(Util.color(a, AutoBackup.hasProblem(a) ? R.color.overdue : R.color.muted));
         status.setPadding(0, Util.dp(a, 12), 0, Util.dp(a, 4));
         box.addView(status);
@@ -65,8 +61,8 @@ final class Backup {
         action(a, box, "⏱  Automatic backup…", new Runnable() {
             public void run() { dlg[0].dismiss(); AutoBackup.setup(a); }
         });
-        action(a, box, "💾  Back up now (choose where)", new Runnable() {
-            public void run() { dlg[0].dismiss(); create(a); }
+        action(a, box, "💾  Back up now", new Runnable() {
+            public void run() { dlg[0].dismiss(); AutoBackup.backupNow(a); }
         });
         action(a, box, "↩  Restore from a backup", new Runnable() {
             public void run() { dlg[0].dismiss(); pickRestore(a); }
@@ -91,44 +87,6 @@ final class Backup {
             public void onClick(android.view.View v) { run.run(); }
         });
         box.addView(t);
-    }
-
-    private static void create(final MainActivity a) {
-        LinearLayout box = Util.dialogBox(a);
-        TextView info = new TextView(a);
-        info.setText("Choose a password for this backup (at least " + MIN_PASSWORD + " characters). "
-                + "Without it the file can't be opened — not even by us. Write it down somewhere safe.");
-        info.setTextColor(Util.color(a, R.color.muted));
-        box.addView(info);
-        final EditText p1 = password(a, "Backup password");
-        final EditText p2 = password(a, "Repeat password");
-        box.addView(p1);
-        box.addView(p2);
-        new AlertDialog.Builder(a)
-                .setTitle("Create encrypted backup")
-                .setView(box)
-                .setPositiveButton("Continue", new DialogInterface.OnClickListener() {
-                    public void onClick(DialogInterface d, int which) {
-                        String pw = p1.getText().toString();
-                        if (pw.length() < MIN_PASSWORD) {
-                            Toast.makeText(a, "Password too short (min. " + MIN_PASSWORD + " characters)", Toast.LENGTH_LONG).show();
-                            return;
-                        }
-                        if (!pw.equals(p2.getText().toString())) {
-                            Toast.makeText(a, "The passwords don't match", Toast.LENGTH_LONG).show();
-                            return;
-                        }
-                        final char[] chars = pw.toCharArray();
-                        collectSecrets(a, new Secrets() {
-                            public void got(byte[] vaultKey, boolean vaultAuth, byte[] notesKey) {
-                                chooseFile(a, chars, vaultKey, vaultAuth, notesKey);
-                            }
-                        });
-                    }
-                })
-                .setNegativeButton("Cancel", null)
-                .show();
-        Util.showKeyboard(p1);
     }
 
     static EditText password(Context c, String hint) {
@@ -178,52 +136,6 @@ final class Backup {
         a.confirmUser("Include passwords & locked notes", true, new MainActivity.AuthResult() {
             public void done(boolean ok, int error) {
                 if (ok) go.run();
-            }
-        });
-    }
-
-    private static void chooseFile(final MainActivity a, final char[] pw, final byte[] vaultKey, final boolean vaultAuth, final byte[] notesKey) {
-        String name = "Doable backup " + new SimpleDateFormat("yyyy-MM-dd", Locale.ROOT).format(new Date()) + ".doable";
-        a.createDocument(name, "application/octet-stream", new MainActivity.UriPicked() {
-            public void onUri(final Uri uri) {
-                final File snapshot;
-                try {
-                    snapshot = snapshotDb(a, "backup.db");
-                } catch (IOException e) {
-                    Toast.makeText(a, "Backup failed: " + e.getMessage(), Toast.LENGTH_LONG).show();
-                    return;
-                }
-                Toast.makeText(a, "Saving backup…", Toast.LENGTH_SHORT).show();
-                new Thread(new Runnable() {
-                    public void run() {
-                        String error = null;
-                        try {
-                            OutputStream out = a.getContentResolver().openOutputStream(uri, "w");
-                            if (out == null) throw new IOException("Cannot write there");
-                            write(a, out, pw, snapshot, vaultKey, vaultAuth, notesKey);
-                        } catch (Exception e) {
-                            error = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
-                        } finally {
-                            snapshot.delete();
-                        }
-                        final String err = error;
-                        a.runOnUiThread(new Runnable() {
-                            public void run() {
-                                if (err != null) {
-                                    Toast.makeText(a, "Backup failed: " + err, Toast.LENGTH_LONG).show();
-                                    return;
-                                }
-                                a.prefs.edit().putLong("lastBackup", System.currentTimeMillis()).apply();
-                                new AlertDialog.Builder(a)
-                                        .setTitle("Backup saved ✓")
-                                        .setMessage("Keep the file and its password safe. If you saved it in Downloads, "
-                                                + "also copy it off the phone (PC, USB stick or cloud drive).")
-                                        .setPositiveButton("OK", null)
-                                        .show();
-                            }
-                        });
-                    }
-                }).start();
             }
         });
     }

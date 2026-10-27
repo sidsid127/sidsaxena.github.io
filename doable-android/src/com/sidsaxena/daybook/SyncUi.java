@@ -66,7 +66,7 @@ final class SyncUi {
             afterSignIn(a);
             return;
         }
-        Toast.makeText(a, "Sign in with Google in the browser, then come back", Toast.LENGTH_LONG).show();
+        Toast.makeText(a, "Sign in with Google — Doable opens again by itself afterwards", Toast.LENGTH_LONG).show();
         GoogleDrive.signIn(a, new GoogleDrive.SignedIn() {
             public void done(String error) {
                 if (error != null) {
@@ -76,6 +76,15 @@ final class SyncUi {
                 afterSignIn(a);
             }
         });
+    }
+
+    /** Google's answer arrived after Doable was restarted (no callback waiting). */
+    static void signedIn(MainActivity a, String error) {
+        if (error != null) {
+            new AlertDialog.Builder(a).setTitle("Google sign-in").setMessage(error).setPositiveButton("OK", null).show();
+            return;
+        }
+        afterSignIn(a);
     }
 
     /** Signed in: make sure passwords & locked notes can be included, then the first sync (which asks for the passphrase). */

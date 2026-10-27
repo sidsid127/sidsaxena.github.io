@@ -22,8 +22,8 @@ import java.util.Map;
 
 
 /**
- * Automatic backups: daily, weekly or monthly into a folder the user picked once. Each run writes
- * "Doable backup.doable" there, replacing the previous one (written to a temporary file first, so a failed
+ * Backups into a folder the user picked once — daily, weekly, monthly, and whenever "Back up now" is tapped.
+ * Each run writes "Doable backup.doable" there, replacing the previous one, so backups never pile up (written to a temporary file first, so a failed
  * run never destroys the last good backup). Runs when Doable goes to the background and a backup is due.
  * The backup password (and the keys for passwords / locked notes) are kept wrapped by a Keystore key.
  */
@@ -56,7 +56,12 @@ final class AutoBackup {
     static String status(Context c) {
         SharedPreferences p = prefs(c);
         int days = p.getInt("days", 0);
-        if (days == 0 || !configured(c)) return "Automatic backup: off.";
+        if (!configured(c)) return "Automatic backup: off.";
+        if (days == 0) {
+            long last = p.getLong("last", 0);
+            return "Automatic backup: off.\n\"Back up now\" saves to the folder \"" + p.getString("folder", "?") + "\" (file \"" + FILE
+                    + "\"), replacing the previous backup." + (last == 0 ? "" : "\nLast backup: " + Util.fullTimestamp(c, last) + ".");
+        }
         String freq = days == 1 ? "daily" : days == 7 ? "weekly" : "monthly";
         long last = p.getLong("last", 0);
         StringBuilder sb = new StringBuilder("Automatic backup: " + freq + " to the folder \"" + p.getString("folder", "?") + "\""
@@ -101,13 +106,20 @@ final class AutoBackup {
         b.show();
     }
 
+    /** "Back up now": replaces the backup file in the backup folder; asks for password and folder the first time. */
+    static void backupNow(MainActivity a) {
+        if (configured(a)) start(a, true);
+        else fullSetup(a, 0);
+    }
+
     /** Password → fingerprint (to include passwords & locked notes) → folder → first backup right away. */
     private static void fullSetup(final MainActivity a, final int days) {
         LinearLayout box = Util.dialogBox(a);
         TextView info = new TextView(a);
-        info.setText("Choose a password for your automatic backups (at least 8 characters). Doable remembers it, "
+        info.setText("Choose a password for your backups (at least 8 characters). Doable remembers it, "
                 + "locked in this phone's secure hardware, so it can back up without asking. You'll need it to restore — "
-                + "write it down somewhere safe.");
+                + "write it down somewhere safe.\n\nThen pick a folder. Doable always keeps just one file there, \"" + FILE
+                + "\", and replaces it with each new backup, so old backups don't pile up.");
         info.setTextColor(Util.color(a, R.color.muted));
         box.addView(info);
         final EditText p1 = Backup.password(a, "Backup password");
@@ -115,7 +127,7 @@ final class AutoBackup {
         box.addView(p1);
         box.addView(p2);
         new AlertDialog.Builder(a)
-                .setTitle("Automatic backup")
+                .setTitle(days == 0 ? "Back up now" : "Automatic backup")
                 .setView(box)
                 .setPositiveButton("Next: choose folder", new DialogInterface.OnClickListener() {
                     public void onClick(DialogInterface d, int which) {
@@ -188,7 +200,7 @@ final class AutoBackup {
             return;
         }
         running = true;
-        if (tell) Toast.makeText(a, "Making the first backup…", Toast.LENGTH_SHORT).show();
+        if (tell) Toast.makeText(a, "Backing up…", Toast.LENGTH_SHORT).show();
         final Context c = a.getApplicationContext();
         new Thread(new Runnable() {
             public void run() {
@@ -212,7 +224,7 @@ final class AutoBackup {
                     public void run() {
                         if (a.isFinishing()) return;
                         new AlertDialog.Builder(a)
-                                .setTitle(err == null ? "Automatic backup is on ✓" : "Backup failed")
+                                .setTitle(err == null ? "Backup saved ✓" : "Backup failed")
                                 .setMessage(err == null ? status(a) : err)
                                 .setPositiveButton("OK", null)
                                 .show();
