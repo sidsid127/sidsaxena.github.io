@@ -2,139 +2,14 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
-  <title>Doable</title>
-  <meta name="description" content="Offline to-do list, notes, groceries and passwords. Your data stays on your phone.">
-  <meta name="theme-color" content="#3F2CB8">
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="Doable">
-  <link rel="manifest" href="manifest.webmanifest">
-  <link rel="icon" href="icons/icon-192.png">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Doable has moved</title>
+  <meta http-equiv="refresh" content="0; url=../doable/">
   <link rel="apple-touch-icon" href="icons/icon-180.png">
-  <link rel="stylesheet" href="app.css">
-  <script>
-    // Apply the saved theme before first paint to avoid a flash.
-    try {
-      var t = (JSON.parse(localStorage.getItem('daybook.v1')) || {}).settings || {};
-      var dark = t.theme === 'dark' || (t.theme !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches);
-      document.documentElement.dataset.theme = dark ? 'dark' : 'light';
-    } catch (e) {}
-  </script>
 </head>
-<body>
-  <header class="topbar">
-    <button class="icon-btn" id="nav-btn" aria-label="Menu"></button>
-    <h1 id="title">Doable</h1>
-    <button class="icon-btn" id="more-btn" aria-label="More options">
-      <svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>
-    </button>
-  </header>
-
-  <!-- To-do -->
-  <section class="mod mod-tasks" id="mod-tasks" hidden>
-    <nav class="chips" id="chips-top"></nav>
-    <nav class="chips sub" id="chips-sub"></nav>
-    <main class="scroll">
-      <p class="summary" id="task-summary"></p>
-      <ul class="list" id="task-list"></ul>
-      <p class="empty" id="task-empty" hidden>Nothing to do here.
-Type a task below and tap Add.</p>
-    </main>
-    <form class="addbar" id="task-add" autocomplete="off">
-      <button type="button" class="icon-btn due-btn" id="due-btn" aria-label="Set due date">
-        <svg viewBox="0 0 24 24"><path d="M19 4h-1V2h-2v2H8V2H6v2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2zm0 16H5V10h14v10zm0-12H5V6h14v2zm-7 5h5v5h-5z"/></svg>
-        <span class="dot" id="due-dot" hidden></span>
-      </button>
-      <input id="task-input" type="text" enterkeyhint="done" autocapitalize="sentences" placeholder="Add a task…">
-      <button type="submit" class="add-btn">Add</button>
-    </form>
-  </section>
-
-  <!-- Notes -->
-  <section class="mod" id="mod-notes" hidden>
-    <main class="scroll" id="notes-list-view">
-      <input class="search" id="note-search" type="search" placeholder="Search" autocomplete="off">
-      <ul class="list" id="note-list"></ul>
-      <p class="empty" id="note-empty" hidden>No notes yet.
-Tap + to write one.</p>
-    </main>
-    <button class="fab" id="note-new" aria-label="New note"></button>
-    <div class="editor-wrap" id="note-editor-view" hidden>
-      <div class="editor-date" id="note-date"></div>
-      <div class="editor" id="note-editor" contenteditable="plaintext-only" spellcheck="true" autocapitalize="sentences" data-placeholder="Start typing… The first line is the title."></div>
-    </div>
-  </section>
-
-  <!-- Groceries -->
-  <section class="mod" id="mod-grocery" hidden>
-    <main class="scroll" id="grocery-scroll">
-      <p class="summary" id="grocery-summary"></p>
-      <div id="grocery-list"></div>
-      <div id="grocery-usuals"></div>
-    </main>
-    <div class="bottom">
-      <nav class="chips" id="shop-chips"></nav>
-      <form class="addbar" id="grocery-add" autocomplete="off">
-        <input id="grocery-input" type="text" enterkeyhint="done" autocapitalize="sentences" placeholder="Add an item…">
-        <button type="submit" class="add-btn">Add</button>
-      </form>
-    </div>
-  </section>
-
-  <!-- Passwords -->
-  <section class="mod" id="mod-vault" hidden>
-    <div class="vault-locked" id="vault-locked">
-      <svg viewBox="0 0 24 24"><path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z"/></svg>
-      <p id="vault-locked-text"></p>
-      <div id="vault-locked-actions"></div>
-    </div>
-    <main class="scroll" id="vault-open" hidden>
-      <input class="search" id="vault-search" type="search" placeholder="Search" autocomplete="off">
-      <ul class="list" id="vault-list"></ul>
-      <p class="empty" id="vault-empty" hidden>No passwords saved yet.
-Tap + to add one.</p>
-    </main>
-    <button class="fab" id="vault-new" aria-label="Add password" hidden></button>
-  </section>
-
-  <!-- Activity log -->
-  <section class="mod" id="mod-log" hidden>
-    <main class="scroll">
-      <p class="summary" id="log-summary"></p>
-      <ul class="list" id="log-list"></ul>
-      <p class="empty" id="log-empty" hidden>Nothing logged yet.
-Note down what you did below.</p>
-    </main>
-    <form class="addbar" id="log-add" autocomplete="off">
-      <input id="log-input" type="text" enterkeyhint="done" autocapitalize="sentences" placeholder="What did you just do?">
-      <button type="submit" class="add-btn">Add</button>
-    </form>
-  </section>
-
-  <div class="drawer-scrim" id="drawer-scrim" hidden></div>
-  <nav class="drawer" id="drawer" hidden></nav>
-
-  <div class="lock" id="lock" hidden>
-    <img src="icons/icon-192.png" alt="" class="lock-logo">
-    <h2>Locked</h2>
-    <div class="pin-dots" id="pin-dots"></div>
-    <p class="lock-msg" id="lock-msg">Enter your PIN</p>
-    <div class="keypad" id="keypad"></div>
-    <button class="faceid-btn" id="faceid-btn" hidden>Unlock with Face ID</button>
-  </div>
-
-  <div class="sheet-backdrop" id="backdrop" hidden></div>
-  <section class="sheet" id="sheet" hidden></section>
-  <div class="toast" id="toast" hidden></div>
-
-  <script src="core.js"></script>
-  <script src="tasks.js"></script>
-  <script src="notes.js"></script>
-  <script src="grocery.js"></script>
-  <script src="vault.js"></script>
-  <script src="log.js"></script>
-  <script src="start.js"></script>
+<body style="font:16px -apple-system,system-ui,sans-serif;padding:24px">
+  <p>Doable has a new home: <a href="../doable/">open the new version</a>. Your tasks, notes and lists come along automatically.
+  Remove this Home Screen icon and add the new page instead (Share → Add to Home Screen).</p>
+  <script>location.replace('../doable/');</script>
 </body>
 </html>

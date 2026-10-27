@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Doable</title>
+  <meta name="description" content="To-do, notes, groceries, passwords, diary, trips, habits, dates, checklists and wallet. Works offline; optional private sync.">
+  <meta name="theme-color" content="#3F2CB8">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Doable">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon-192.png">
+  <link rel="apple-touch-icon" href="icons/icon-180.png">
+  <link rel="stylesheet" href="app.css">
+  <script>
+    try {
+      var t = (JSON.parse(localStorage.getItem('doable.settings')) || {}).theme;
+      var dark = t === 'dark' || (t !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches);
+      document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+    } catch (e) {}
+  </script>
+  <script type="module" src="js/app.js"></script>
+</head>
+<body>
+  <div id="app">
+    <nav id="side" aria-label="Modules"></nav>
+    <div id="scrim" hidden></div>
+    <div id="main">
+      <header id="bar">
+        <button class="icon-btn" id="nav-btn" aria-label="Menu"></button>
+        <h1 id="title">Doable</h1>
+        <button class="icon-btn" id="search-btn" aria-label="Search everything"></button>
+        <button class="icon-btn" id="more-btn" aria-label="More options"></button>
+      </header>
+      <div id="view"></div>
+    </div>
+  </div>
+  <div id="lock" hidden>
+    <img src="icons/icon-192.png" alt="">
+    <div id="lock-msg">Enter your PIN</div>
+    <div class="pin-dots" id="pin-dots"></div>
+    <div class="keypad" id="keypad"></div>
+    <button class="lock-btn" id="faceid-btn" hidden>Use Face ID / Touch ID</button>
+  </div>
+  <noscript>Doable needs JavaScript.</noscript>
+</body>
+</html>

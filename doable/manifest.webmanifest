@@ -1,0 +1,21 @@
+{
+  "name": "Doable",
+  "short_name": "Doable",
+  "description": "To-do, notes, groceries, passwords, diary, trips, habits, dates, checklists and wallet — works offline, syncs privately.",
+  "id": "./",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#F4F3FA",
+  "theme_color": "#3F2CB8",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "share_target": {
+    "action": "./?share",
+    "method": "GET",
+    "params": { "title": "title", "text": "text", "url": "url" }
+  }
+}

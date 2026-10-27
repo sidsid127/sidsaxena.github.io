@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Doable · signing in</title>
+  <style>body{font:16px -apple-system,system-ui,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;color:#3F2CB8}</style>
+</head>
+<body>
+  <p id="msg">Signing in…</p>
+  <script>
+    // Google sends the access token here (in the URL fragment, never to a server). Hand it to Doable.
+    (function () {
+      var p = new URLSearchParams(location.hash.slice(1));
+      var data = { token: p.get('access_token'), exp: Date.now() + (Number(p.get('expires_in')) || 3600) * 1000,
+        state: p.get('state'), error: p.get('error') };
+      history.replaceState(null, '', location.pathname);
+      try { localStorage.setItem('doable.authResult', JSON.stringify(data)); } catch (e) {}
+      if (window.opener) {
+        try { window.opener.postMessage({ doableAuth: data }, location.origin); } catch (e) {}
+        document.getElementById('msg').textContent = data.error ? 'Sign-in cancelled.' : 'Signed in — you can close this window.';
+        setTimeout(function () { window.close(); }, 200);
+      }
+      setTimeout(function () { location.replace('./'); }, window.opener ? 1500 : 100);
+    })();
+  </script>
+</body>
+</html>
