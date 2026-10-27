@@ -7,7 +7,7 @@ end-to-end encrypted with your sync passphrase (see [SYNC.md](SYNC.md) and [GOOG
 
 ## Install
 
-* **iPhone / iPad:** open <https://doable-nu-lovat.vercel.app> in **Safari** → Share → **Add to Home Screen**.
+* **iPhone / iPad:** open <https://doable-sid.vercel.app> in **Safari** → Share → **Add to Home Screen**.
 * **Mac:** Safari 17+ → File → **Add to Dock**; or Chrome / Edge → install icon in the address bar.
 
 ## What's different from Android

@@ -13,21 +13,28 @@ see any of your other files) and your **email address** (to show which account i
 2. Top bar → project picker → **New project** → name it `Doable` → **Create**, then select it.
 3. Menu → **APIs & Services → Library** → search **Google Drive API** → **Enable**.
 
-## 2. Consent screen
+## 2. Consent screen (Branding)
 
-1. Menu → **Google Auth Platform** (or *APIs & Services → OAuth consent screen*) → **Get started**.
-2. App name `Doable`, your Gmail as support email → Next → Audience **External** → your Gmail as contact → **Create**.
+1. Menu → **Google Auth Platform** → **Get started**: app name `Doable`, your Gmail as support email → Next →
+   Audience **External** → your Gmail as contact → **Create**.
+2. **Branding** page:
+   * App name `Doable`, user support email: your Gmail
+   * App logo: **leave empty** (uploading a logo makes Google require a manual review)
+   * Application home page: `https://doable-sid.vercel.app/about.html`
+   * Privacy policy: `https://doable-sid.vercel.app/privacy.html`
+   * Terms of service: `https://doable-sid.vercel.app/terms.html`
+   * Authorized domains → Add domain: `doable-sid.vercel.app`
+   * Developer contact: your Gmail → **Save**
 3. **Data access → Add or remove scopes**: tick `.../auth/drive.appdata` and `.../auth/userinfo.email` → Update → **Save**.
-4. **Audience → Publish app → Confirm** (status "In production").
-   Important: in "Testing" status Google makes Android sign-ins expire every 7 days. While unverified, Google
-   shows a "Google hasn't verified this app" warning when you sign in — tap **Advanced → Go to Doable** (it's your own app).
+4. **Audience → Publish app → Confirm** (status "In production"). In "Testing" status Android sign-ins expire every
+   7 days. Users see a "Google hasn't verified this app" note until the app is verified — Advanced → Go to Doable.
 
 ## 3. Client for the web app (iPhone & Mac)
 
 **Clients → Create client** → type **Web application** → name `Doable web`
 
-* Authorized JavaScript origins: `https://doable-nu-lovat.vercel.app`
-* Authorized redirect URIs: `https://doable-nu-lovat.vercel.app/auth.html`
+* Authorized JavaScript origins: `https://doable-sid.vercel.app`
+* Authorized redirect URIs: `https://doable-sid.vercel.app/auth.html`
 
 → **Create** and copy the **Client ID** (`…apps.googleusercontent.com`).
 
