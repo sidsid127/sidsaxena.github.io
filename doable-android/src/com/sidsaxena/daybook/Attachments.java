@@ -47,7 +47,7 @@ final class Attachments {
     }
 
     static boolean isAudio(String name) {
-        return name.endsWith(".m4a");
+        return name.endsWith(".m4a") || name.endsWith(".webm") || name.endsWith(".ogg") || name.endsWith(".mp4") || name.endsWith(".aac");
     }
 
     /** Copies picked content in; images are shrunk to at most 2048 px and turned upright. Returns the file name. */

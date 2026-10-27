@@ -1,8 +1,10 @@
 # Doable (Android)
 
 An offline organiser: to-do list, notes, groceries, passwords, diary, trips, habits, important dates,
-checklists and a wallet. All data stays on the phone:
-no account, no internet permission, and Android cloud backup is switched off.
+checklists and a wallet. All data stays on the phone: no account, and Android cloud backup is switched off.
+The only use of the internet is the **optional sync** (☰ → *Sync with Google*) with your iPhone / Mac
+(the web app in `../doable`), through your own Google Drive and end-to-end encrypted with your sync
+passphrase — off until you turn it on. Setup: `../doable/GOOGLE-SETUP.md`.
 
 Open the ☰ side menu to switch between modules (☰ → *Show / hide modules* to trim it) or make a backup;
 🔍 in the top bar searches everything. The ⋮ menu has each module's options plus the fingerprint app lock and the theme.
@@ -96,6 +98,8 @@ update an installed copy; don't use it for a Play Store release.
 - `Reminders.java`, `Notify.java`, `BootReceiver.java` — the single-alarm reminder engine
 - `Widgets.java` and friends — home-screen widgets; `AutofillSvc.java` — password autofill
 - `Backup.java` + `BackupCrypto.java` — encrypted backup file
+- `SyncEngine`, `SyncSchema`, `SyncCrypto`, `GoogleDrive`, `SyncUi`, `SyncJob` — sync (format: `../doable/SYNC.md`);
+  database version 6 adds uid / mtime columns and triggers that track changes and deletions
 - Pure-Java logic (unit-tested on the JVM): `QuickAdd`, `Recurrence`, `HabitLogic`, `TripMath`, `GroceryText`,
   `Barcode`, `Csv`, `BackupCrypto`
 

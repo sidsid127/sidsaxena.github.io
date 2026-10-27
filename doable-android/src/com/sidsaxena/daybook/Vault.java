@@ -64,12 +64,14 @@ public class Vault {
     private static final String ALIAS_OPEN = "doable_vault_open";
     private static final int AUTH_SECONDS = 30;
 
+    private final Context ctx;
     private final SharedPreferences prefs;
     private final File file;
     private SecretKey dataKey;          // null while locked
     private List<Login> logins;
 
     public Vault(Context context) {
+        ctx = context.getApplicationContext();
         prefs = context.getSharedPreferences("vault", Context.MODE_PRIVATE);
         file = new File(context.getFilesDir(), "vault.bin");
     }
@@ -79,13 +81,14 @@ public class Vault {
     public boolean isOpen() { return dataKey != null; }
 
     /** First use: makes a new random data key and protects it with a Keystore key. */
-    public void create(boolean auth) throws GeneralSecurityException, IOException {
+    public void create(boolean auth) throws GeneralSecurityException, IOException, JSONException {
         KeyGenerator kg = KeyGenerator.getInstance("AES");
         kg.init(256);
         SecretKey key = kg.generateKey();
         wrapKey(key, auth);
         dataKey = key;
         logins = new ArrayList<Login>();
+        mergeSyncCopy(); // passwords that arrived through sync before this phone had a vault
         save();
     }
 
@@ -116,6 +119,7 @@ public class Vault {
                 logins.add(l);
             }
         }
+        mergeSyncCopy();
     }
 
     public void close() {
@@ -208,6 +212,102 @@ public class Vault {
             out.close();
         }
         if (!tmp.renameTo(file)) throw new IOException("Could not save passwords");
+        writeSyncCopy();
+    }
+
+    // ---- sync: a copy of the logins sealed with the sync key, so sync can run while the vault is locked
+
+    static File syncCopyFile(Context c) {
+        return new File(c.getFilesDir(), "vault_sync.bin");
+    }
+
+    /** The logins as sync rows ({uid: {m, r} or {m, d: 1}}), or null if there is no copy. */
+    static JSONObject readSyncCopy(Context c, byte[] key) {
+        File f = syncCopyFile(c);
+        if (key == null || !f.exists()) return null;
+        try {
+            byte[] data = new byte[(int) f.length()];
+            java.io.DataInputStream in = new java.io.DataInputStream(new java.io.FileInputStream(f));
+            try {
+                in.readFully(data);
+            } finally {
+                in.close();
+            }
+            return new JSONObject(new String(SyncCrypto.open(key, data), "UTF-8"));
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    static void writeSyncCopy(Context c, byte[] key, JSONObject rows) throws GeneralSecurityException, IOException {
+        File tmp = new File(c.getFilesDir(), "vault_sync.tmp");
+        FileOutputStream out = new FileOutputStream(tmp);
+        try {
+            out.write(SyncCrypto.seal(key, rows.toString().getBytes("UTF-8")));
+        } finally {
+            out.close();
+        }
+        if (!tmp.renameTo(syncCopyFile(c))) throw new IOException("Could not save the sync copy");
+    }
+
+    private static JSONObject syncRow(Login l) throws JSONException {
+        return new JSONObject().put("type", l.type).put("title", l.title).put("url", l.url).put("user", l.user).put("password", l.password)
+                .put("number", l.number).put("holder", l.holder).put("expiry", l.expiry).put("cvv", l.cvv).put("pin", l.pin)
+                .put("notes", l.notes).put("modified", l.modified);
+    }
+
+    /** After a change: rows for all logins; logins that disappeared become tombstones. */
+    private void writeSyncCopy() {
+        byte[] key = SyncEngine.syncKey(ctx);
+        if (key == null || logins == null) return;
+        try {
+            JSONObject old = readSyncCopy(ctx, key);
+            JSONObject rows = new JSONObject();
+            for (Login l : logins) rows.put(l.id, new JSONObject().put("m", l.modified).put("r", syncRow(l)));
+            if (old != null) {
+                for (java.util.Iterator<String> it = old.keys(); it.hasNext(); ) {
+                    String uid = it.next();
+                    if (rows.has(uid)) continue;
+                    JSONObject e = old.getJSONObject(uid);
+                    rows.put(uid, e.optInt("d") == 1 ? e : new JSONObject().put("m", System.currentTimeMillis()).put("d", 1));
+                }
+            }
+            writeSyncCopy(ctx, key, rows);
+        } catch (Exception ignored) {
+            // the next save tries again
+        }
+    }
+
+    /** On opening: takes in logins that sync received while the vault was locked (newer wins). */
+    private void mergeSyncCopy() throws GeneralSecurityException, IOException, JSONException {
+        JSONObject rows = readSyncCopy(ctx, SyncEngine.syncKey(ctx));
+        if (rows == null) {
+            writeSyncCopy();
+            return;
+        }
+        boolean changed = false;
+        for (java.util.Iterator<String> it = rows.keys(); it.hasNext(); ) {
+            String uid = it.next();
+            JSONObject e = rows.getJSONObject(uid);
+            long m = e.optLong("m");
+            Login local = null;
+            for (Login l : logins) if (l.id.equals(uid)) local = l;
+            if (e.optInt("d") == 1) {
+                if (local != null && local.modified < m) {
+                    logins.remove(local);
+                    changed = true;
+                }
+            } else if (local == null || local.modified < m) {
+                Login l = fromJson(e.getJSONObject("r"));
+                l.id = uid;
+                l.modified = m;
+                if (local != null) logins.remove(local);
+                logins.add(l);
+                changed = true;
+            }
+        }
+        if (changed) save();
+        else writeSyncCopy();
     }
 
     static JSONObject toJson(Login l) throws JSONException {

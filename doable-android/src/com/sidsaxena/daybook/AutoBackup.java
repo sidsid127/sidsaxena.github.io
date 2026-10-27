@@ -8,8 +8,6 @@ import android.content.SharedPreferences;
 import android.database.Cursor;
 import android.net.Uri;
 import android.provider.DocumentsContract;
-import android.security.keystore.KeyGenParameterSpec;
-import android.security.keystore.KeyProperties;
 import android.util.Base64;
 import android.widget.EditText;
 import android.widget.LinearLayout;
@@ -19,14 +17,9 @@ import android.widget.Toast;
 import org.json.JSONObject;
 
 import java.io.File;
-import java.security.KeyStore;
 import java.util.HashMap;
 import java.util.Map;
 
-import javax.crypto.Cipher;
-import javax.crypto.KeyGenerator;
-import javax.crypto.SecretKey;
-import javax.crypto.spec.GCMParameterSpec;
 
 /**
  * Automatic backups: daily, weekly or monthly into a folder the user picked once. Each run writes
@@ -317,33 +310,11 @@ final class AutoBackup {
 
     // ---------------------------------------------------------------- keystore wrapping (no fingerprint needed)
 
-    private static SecretKey key() throws Exception {
-        KeyStore ks = KeyStore.getInstance("AndroidKeyStore");
-        ks.load(null);
-        if (ks.containsAlias(ALIAS)) return (SecretKey) ks.getKey(ALIAS, null);
-        KeyGenerator kg = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore");
-        kg.init(new KeyGenParameterSpec.Builder(ALIAS, KeyProperties.PURPOSE_ENCRYPT | KeyProperties.PURPOSE_DECRYPT)
-                .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
-                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
-                .setKeySize(256)
-                .build());
-        return kg.generateKey();
-    }
-
     private static String wrap(String plain) throws Exception {
-        Cipher c = Cipher.getInstance("AES/GCM/NoPadding");
-        c.init(Cipher.ENCRYPT_MODE, key());
-        byte[] iv = c.getIV(), ct = c.doFinal(plain.getBytes("UTF-8"));
-        byte[] out = new byte[iv.length + ct.length];
-        System.arraycopy(iv, 0, out, 0, iv.length);
-        System.arraycopy(ct, 0, out, iv.length, ct.length);
-        return Base64.encodeToString(out, Base64.NO_WRAP);
+        return Secrets.wrap(ALIAS, plain);
     }
 
     private static String unwrap(String b64) throws Exception {
-        byte[] data = Base64.decode(b64, Base64.NO_WRAP);
-        Cipher c = Cipher.getInstance("AES/GCM/NoPadding");
-        c.init(Cipher.DECRYPT_MODE, key(), new GCMParameterSpec(128, data, 0, 12));
-        return new String(c.doFinal(data, 12, data.length - 12), "UTF-8");
+        return Secrets.unwrapString(ALIAS, b64);
     }
 }

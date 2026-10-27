@@ -468,7 +468,10 @@ class NotesScreen extends Screen {
     private String plainBody(Db.Note n) throws Exception {
         if (!n.locked) return n.body;
         int at = n.body.indexOf(LOCK_MARK);
-        return at < 0 ? n.body : box.decrypt(n.body.substring(at + LOCK_MARK.length()));
+        if (at < 0) return n.body;
+        String sealed = n.body.substring(at + LOCK_MARK.length());
+        // With sync on, locked notes are sealed with the sync key ("S:…"); the fingerprint check still guards opening them.
+        return sealed.startsWith(SyncEngine.SEALED) ? SyncEngine.openSealed(a, sealed) : box.decrypt(sealed);
     }
 
     private void setLocked(final boolean lock) {
@@ -554,7 +557,8 @@ class NotesScreen extends Screen {
         if (open.locked) {
             if (!box.isOpen()) return; // cannot happen while editing; never store a locked note in plain text
             try {
-                stored = titleOf(body) + "\n" + LOCK_MARK + box.encrypt(body);
+                String sealed = SyncEngine.seal(a, body);
+                stored = titleOf(body) + "\n" + LOCK_MARK + (sealed != null ? sealed : box.encrypt(body));
             } catch (Exception e) {
                 Toast.makeText(a, "Could not encrypt the note", Toast.LENGTH_LONG).show();
                 return;

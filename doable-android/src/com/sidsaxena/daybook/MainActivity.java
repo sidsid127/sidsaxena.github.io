@@ -313,6 +313,12 @@ public class MainActivity extends Activity {
         }
     }
 
+    /** Sync wrote new data: refresh what's on screen (not while an editor is open, to keep typing undisturbed). */
+    void syncChanged() {
+        if (locked || isFinishing()) return;
+        if (!current.homeIsBack()) current.onShow();
+    }
+
     /** Closes the open note / diary entry (saving it) before the database is replaced. */
     void beforeRestore() {
         current.onHide();
@@ -333,7 +339,12 @@ public class MainActivity extends Activity {
     @Override
     protected void onStart() {
         super.onStart();
+        boolean returning = leavingForExternal;
         leavingForExternal = false;
+        if (!returning && SyncEngine.enabled(this) && SyncEngine.syncKey(this) != null
+                && System.currentTimeMillis() - SyncEngine.prefs(this).getLong("last", 0) > 60000) {
+            SyncUi.syncNow(this, false);
+        }
         showLockScreen(locked);
         if (locked && !authInProgress) {
             lockView.post(new Runnable() {
@@ -354,6 +365,7 @@ public class MainActivity extends Activity {
         if (authInProgress || isChangingConfigurations()) return;
         current.onStop();
         AutoBackup.runIfDue(this);
+        if (!leavingForExternal && SyncEngine.enabled(this) && SyncEngine.syncKey(this) != null) SyncUi.syncNow(this, false);
         new Thread(new Runnable() {
             public void run() { Reminders.refresh(getApplicationContext()); }
         }).start();
@@ -434,6 +446,9 @@ public class MainActivity extends Activity {
             drawerItems.addView(row);
         }
         divider();
+        drawerAction(R.drawable.ic_sync, "Sync with Google", new Runnable() {
+            public void run() { SyncUi.show(MainActivity.this); }
+        });
         drawerAction(R.drawable.ic_backup, "Backup & restore", new Runnable() {
             public void run() { Backup.show(MainActivity.this); }
         });

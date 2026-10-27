@@ -100,7 +100,7 @@ public class Db extends SQLiteOpenHelper {
     }
 
     public Db(Context context) {
-        super(context, "daybook.db", null, 5);
+        super(context, "daybook.db", null, 6);
     }
 
     @Override
@@ -115,6 +115,19 @@ public class Db extends SQLiteOpenHelper {
         createV3(db);
         createV4(db);
         createV5(db);
+        createV6(db);
+    }
+
+    /** A crash during a sync could leave the "applying" flag set; clear it. */
+    @Override
+    public void onOpen(SQLiteDatabase db) {
+        if (!db.isReadOnly()) {
+            try {
+                db.execSQL("UPDATE sync_state SET applying = 0");
+            } catch (RuntimeException ignored) {
+                // table missing in a half-upgraded database
+            }
+        }
     }
 
     @Override
@@ -131,6 +144,101 @@ public class Db extends SQLiteOpenHelper {
             db.delete("grocery", "done = 1", null);
         }
         if (oldVersion < 5) createV5(db);
+        if (oldVersion < 6) createV6(db);
+    }
+
+    static final String NOW_MS = "CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER)";
+    private static final String RANDOM_UID = "lower(hex(randomblob(16)))";
+
+    /**
+     * Sync (version 6): every synced table gets a stable uid and a modification time, and deletions leave a
+     * tombstone. Triggers keep them up to date, so ordinary app code doesn't have to know about sync; while a
+     * sync writes rows, sync_state.applying = 1 and the triggers keep the incoming times.
+     */
+    static void createV6(SQLiteDatabase db) {
+        for (String sql : v6Sql()) db.execSQL(sql);
+        seedUids(db);
+        for (SyncSchema.Table t : SyncSchema.TABLES) {
+            String expr = t.keyedUid == null ? RANDOM_UID : t.keyedUid.replace("NEW.", "");
+            db.execSQL("UPDATE " + t.name + " SET uid = " + expr + " WHERE uid IS NULL");
+            db.execSQL("UPDATE " + t.name + " SET mtime = 2"); // older than any real edit, newer than other devices' fresh starting data
+            db.execSQL("CREATE UNIQUE INDEX " + t.name + "_uid ON " + t.name + " (uid)");
+            for (String sql : triggers(t)) db.execSQL(sql);
+        }
+    }
+
+    static String[] v6Sql() {
+        java.util.List<String> out = new java.util.ArrayList<String>();
+        out.add("CREATE TABLE tombstones (tbl TEXT NOT NULL, uid TEXT NOT NULL, mtime INTEGER NOT NULL, PRIMARY KEY (tbl, uid))");
+        out.add("CREATE TABLE sync_state (applying INTEGER NOT NULL)");
+        out.add("INSERT INTO sync_state VALUES (0)");
+        for (SyncSchema.Table t : SyncSchema.TABLES) {
+            out.add("ALTER TABLE " + t.name + " ADD COLUMN uid TEXT");
+            out.add("ALTER TABLE " + t.name + " ADD COLUMN mtime INTEGER NOT NULL DEFAULT 0");
+        }
+        return out.toArray(new String[0]);
+    }
+
+    static String[] triggers(SyncSchema.Table t) {
+        String n = t.name;
+        String expr = t.keyedUid == null ? RANDOM_UID : t.keyedUid;
+        String applying = "(SELECT applying FROM sync_state)";
+        java.util.List<String> out = new java.util.ArrayList<String>();
+        out.add("CREATE TRIGGER " + n + "_sync_ins AFTER INSERT ON " + n + " BEGIN"
+                + " UPDATE " + n + " SET uid = COALESCE(NEW.uid, " + expr + "), mtime = CASE WHEN " + applying + " = 1 THEN NEW.mtime ELSE " + NOW_MS + " END"
+                + " WHERE rowid = NEW.rowid;"
+                + " DELETE FROM tombstones WHERE tbl = '" + n + "' AND uid = (SELECT uid FROM " + n + " WHERE rowid = NEW.rowid); END");
+        if (t.keyedUid == null) {
+            out.add("CREATE TRIGGER " + n + "_sync_upd AFTER UPDATE ON " + n + " WHEN " + applying + " = 0 BEGIN"
+                    + " UPDATE " + n + " SET mtime = " + NOW_MS + " WHERE rowid = NEW.rowid; END");
+        } else {
+            // The uid follows the content (e.g. a renamed history item): the old uid becomes a tombstone.
+            out.add("CREATE TRIGGER " + n + "_sync_upd AFTER UPDATE ON " + n + " WHEN " + applying + " = 0 BEGIN"
+                    + " INSERT OR REPLACE INTO tombstones (tbl, uid, mtime) SELECT '" + n + "', OLD.uid, " + NOW_MS
+                    + " WHERE OLD.uid IS NOT NULL AND OLD.uid <> " + expr + ";"
+                    + " UPDATE " + n + " SET mtime = " + NOW_MS + ", uid = " + expr + " WHERE rowid = NEW.rowid; END");
+        }
+        out.add("CREATE TRIGGER " + n + "_sync_del AFTER DELETE ON " + n + " WHEN " + applying + " = 0 AND OLD.uid IS NOT NULL BEGIN"
+                + " INSERT OR REPLACE INTO tombstones (tbl, uid, mtime) VALUES ('" + n + "', OLD.uid, " + NOW_MS + "); END");
+        return out.toArray(new String[0]);
+    }
+
+    /** Built-in starting data gets the same fixed uids on every device (doable/SYNC.md), so it merges instead of doubling. */
+    static void seedUids(SQLiteDatabase db) {
+        String[][] byName = {
+                {"categories", "name = 'Private' AND parent = 0", "seed-cat-private"},
+                {"categories", "name = 'Work' AND parent = 0", "seed-cat-work"},
+                {"categories", "name = 'Accenture' AND parent = (SELECT _id FROM categories WHERE uid = 'seed-cat-work')", "seed-cat-accenture"},
+                {"shops", "name = 'Rewe'", "seed-shop-rewe"},
+                {"shops", "name = 'Lidl'", "seed-shop-lidl"},
+                {"shops", "name = 'Aldi'", "seed-shop-aldi"},
+                {"grocery_lists", "name = 'Groceries'", "seed-list-groceries"},
+                {"grocery_lists", "name = 'Drugstore'", "seed-list-drugstore"},
+                {"grocery_lists", "name = 'Hardware store'", "seed-list-hardware"},
+                {"checklists", "template = 1 AND title = 'Business trip packing'", "seed-tpl-business"},
+                {"checklists", "template = 1 AND title = 'Holiday packing'", "seed-tpl-holiday"},
+                {"checklists", "template = 1 AND title = 'Weekend away'", "seed-tpl-weekend"},
+                {"checklists", "template = 1 AND title = 'Before leaving home'", "seed-tpl-leaving"},
+        };
+        for (String[] s : byName) {
+            db.execSQL("UPDATE " + s[0] + " SET uid = '" + s[2] + "' WHERE uid IS NULL AND _id = (SELECT MIN(_id) FROM " + s[0] + " WHERE " + s[1] + ")"
+                    + " AND NOT EXISTS (SELECT 1 FROM " + s[0] + " WHERE uid = '" + s[2] + "')");
+        }
+        // Template items: seed-tpl-<name>-1, -2, … in list order.
+        for (String k : new String[]{"business", "holiday", "weekend", "leaving"}) {
+            Cursor c = db.rawQuery("SELECT i._id FROM checklist_items i JOIN checklists l ON l._id = i.list WHERE l.uid = ? AND i.uid IS NULL"
+                    + " ORDER BY i.position, i._id", new String[]{"seed-tpl-" + k});
+            try {
+                int n = 0;
+                while (c.moveToNext()) {
+                    n++;
+                    db.execSQL("UPDATE checklist_items SET uid = ? WHERE _id = ? AND NOT EXISTS (SELECT 1 FROM checklist_items WHERE uid = ?)",
+                            new Object[]{"seed-tpl-" + k + "-" + n, c.getLong(0), "seed-tpl-" + k + "-" + n});
+                }
+            } finally {
+                c.close();
+            }
+        }
     }
 
     /** Reminders, repeats, subtasks, note extras, grocery lists & prices, new modules. Version 5. */
