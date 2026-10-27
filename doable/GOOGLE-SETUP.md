@@ -26,8 +26,8 @@ see any of your other files) and your **email address** (to show which account i
 
 **Clients → Create client** → type **Web application** → name `Doable web`
 
-* Authorized JavaScript origins: `https://sidsaxena.github.io`
-* Authorized redirect URIs: `https://sidsaxena.github.io/doable/auth.html`
+* Authorized JavaScript origins: `https://doable-nu-lovat.vercel.app`
+* Authorized redirect URIs: `https://doable-nu-lovat.vercel.app/auth.html`
 
 → **Create** and copy the **Client ID** (`…apps.googleusercontent.com`).
 
