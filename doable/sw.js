@@ -1,5 +1,5 @@
 // Caches the app on first visit so it then opens offline. Same-origin files only (Google sync calls go straight to the network).
-const CACHE = 'doable-web-4';
+const CACHE = 'doable-web-5';
 const FILES = ['./', 'index.html', 'app.css', 'manifest.webmanifest', 'config.js', 'auth.html',
   'js/app.js', 'js/ctx.js', 'js/ui.js', 'js/store.js', 'js/logic.js', 'js/crypto.js', 'js/sync.js', 'js/lock.js', 'js/vault.js', 'js/attach.js',
   'js/search.js', 'js/share.js', 'js/m-today.js', 'js/m-tasks.js', 'js/m-notes.js', 'js/m-diary.js', 'js/m-trips.js', 'js/m-grocery.js',

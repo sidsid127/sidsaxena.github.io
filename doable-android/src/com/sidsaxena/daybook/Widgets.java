@@ -113,7 +113,7 @@ final class Widgets {
     // ---------------------------------------------------------------- data
 
     static List<Row> rows(Context ctx, String view) {
-        Db db = new Db(ctx);
+        Db db = Db.get(ctx);
         Store st = new Store(db);
         List<Row> out = new ArrayList<Row>();
         long today = Util.startOfDay(System.currentTimeMillis());

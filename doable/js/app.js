@@ -137,15 +137,15 @@ function settingsMenu() {
       ['system', 'Same as device'], ['light', 'Light'], ['dark', 'Dark']].map(([v, l]) => ({
       label: l, checked: S.settings.theme === v, action: () => { S.settings.theme = v; S.saveSettings(); applyTheme(); },
     }))) },
-    Protect.isOn()
-      ? { label: '🔐 Protected: opens with ' + (Protect.usesFace() ? 'Touch ID / Face ID' : 'your passphrase'), action: () => alert('Protection is on',
-        'Everything Doable keeps on this device is encrypted. It opens with ' + (Protect.usesFace() ? 'Touch ID / Face ID; your passphrase is the backup way in.' : 'your passphrase.')) }
-      : { label: '🔐 Protect with Touch ID / Face ID…', action: async () => { if (await Protect.setup()) app.refresh(); } },
+    Protect.isOn() ? { label: '🔐 Lock Doable when it opens: ' + (Protect.locksAtStart() ? 'on' : 'off'),
+      action: () => Protect.setStartLock(!Protect.locksAtStart()) } : null,
+    Protect.isOn() && !Protect.usesFace() ? { label: '👆 Turn on Touch ID / Face ID…', action: () => Protect.enrollFace() } : null,
+    Protect.isOn() ? null : { label: '🔐 Protect with Touch ID / Face ID…', action: async () => { if (await Protect.setup()) app.refresh(); } },
     Protect.isOn() ? null : { label: S.settings.lock ? 'App lock: on (PIN / Face ID)' : 'App lock: off', action: () => (S.settings.lock ? Lock.disable() : Lock.enable()) },
     { label: 'Notifications while Doable is open', action: askNotifications },
     { label: 'Install on this device…', action: installHelp },
     { label: 'About Doable', action: () => alert('Doable', 'Your data is stored on this device. With sync turned on, it is '
-      + 'end-to-end encrypted with your sync passphrase before it goes to your own Google Drive.\n\nVersion 6.4 (web)') },
+      + 'end-to-end encrypted with your sync passphrase before it goes to your own Google Drive.\n\nVersion 6.5 (web)') },
   ]);
 }
 

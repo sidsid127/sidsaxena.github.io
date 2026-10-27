@@ -24,7 +24,7 @@ public class Notify extends BroadcastReceiver {
         String action = intent.getAction();
         if (action == null) return;
         long id = intent.getLongExtra("id", 0);
-        Db db = new Db(ctx);
+        Db db = Db.get(ctx);
         if (Reminders.ACTION_FIRE.equals(action)) {
             Reminders.fire(ctx);
             return;

@@ -97,7 +97,7 @@ final class SyncUi {
     /** Includes passwords (sealed copy) and converts locked notes; needs the fingerprint once. */
     private static void includeSecrets(final MainActivity a, final Runnable then) {
         final Vault vault = new Vault(a);
-        final Db db = new Db(a);
+        final Db db = Db.get(a);
         final boolean notes = SyncEngine.hasUnconvertedLockedNotes(db);
         final boolean passwords = !Vault.inSync(a);
         if (!notes && !passwords) {
@@ -151,7 +151,7 @@ final class SyncUi {
                         if (error == null) {
                             if (interactive) {
                                 if (SyncEngine.syncKey(a) != null && (!Vault.inSync(a)
-                                        || SyncEngine.hasUnconvertedLockedNotes(new Db(a)))) {
+                                        || SyncEngine.hasUnconvertedLockedNotes(Db.get(a)))) {
                                     includeSecrets(a, new Runnable() {
                                         public void run() { syncNow(a, false); }
                                     });

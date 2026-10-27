@@ -70,7 +70,7 @@ final class SyncEngine {
     static void storeKey(Context c, byte[] key, byte[] salt, int iterations) throws Exception {
         byte[] old = syncKey(c);
         if (old != null && !java.util.Arrays.equals(old, key)) {
-            Db db = new Db(c);
+            Db db = Db.get(c);
             for (Db.Note note : db.notes()) {
                 int at = note.body.indexOf(NotesScreen.LOCK_MARK);
                 if (at < 0 || !note.body.startsWith(SEALED, at + NotesScreen.LOCK_MARK.length())) continue;
@@ -395,7 +395,7 @@ final class SyncEngine {
 
     /** Changes whenever a synced row or a password is changed on this phone. */
     private static String localMark(Context ctx) {
-        SQLiteDatabase db = new Db(ctx).getReadableDatabase();
+        SQLiteDatabase db = Db.get(ctx).getReadableDatabase();
         StringBuilder sql = new StringBuilder("SELECT max(m) FROM (SELECT max(mtime) AS m FROM tombstones");
         for (SyncSchema.Table t : SyncSchema.TABLES) sql.append(" UNION ALL SELECT max(mtime) FROM ").append(t.name);
         Cursor c = db.rawQuery(sql.append(")").toString(), null);
@@ -433,7 +433,7 @@ final class SyncEngine {
         JSONObject remoteLogins = remoteTables.optJSONObject("logins");
         remoteTables.remove("logins");
 
-        Db helper = new Db(ctx);
+        Db helper = Db.get(ctx);
         SQLiteDatabase db = helper.getWritableDatabase();
         List<String> warnings = new ArrayList<String>();
         SyncSchema.Merged merged = SyncSchema.merge(export(ctx, db, warnings), remoteTables, System.currentTimeMillis());

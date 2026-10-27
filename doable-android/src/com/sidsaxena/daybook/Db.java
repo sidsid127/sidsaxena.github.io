@@ -99,8 +99,20 @@ public class Db extends SQLiteOpenHelper {
         public long ts;
     }
 
-    public Db(Context context) {
+    private static Db instance;
+
+    /**
+     * The one database helper for the whole app. Screens, sync, reminders and widgets all share it, so the
+     * database is created once and different threads never trip over each other ("database is locked").
+     */
+    public static synchronized Db get(Context context) {
+        if (instance == null) instance = new Db(context.getApplicationContext());
+        return instance;
+    }
+
+    private Db(Context context) {
         super(context, "daybook.db", null, 6);
+        setWriteAheadLoggingEnabled(true); // readers (screens) keep working while sync writes
     }
 
     @Override

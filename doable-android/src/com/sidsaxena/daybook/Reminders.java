@@ -58,7 +58,7 @@ final class Reminders {
     /** All reminders with from < time <= to. */
     static List<Occ> occurrences(Context ctx, long from, long to) {
         List<Occ> out = new ArrayList<Occ>();
-        Db db = new Db(ctx);
+        Db db = Db.get(ctx);
         Store st = new Store(db);
         for (Db.Task t : db.tasks()) {
             long at = t.remindAt();

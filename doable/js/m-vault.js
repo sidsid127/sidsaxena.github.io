@@ -77,7 +77,7 @@ async function renderLocked(page) {
     page.appendChild(empty('🔑\nOne last time: enter your old master password.\nFrom now on Credentials opens with Touch ID / Face ID.'));
     const pw = input('', { type: 'password', placeholder: 'Master password', autocomplete: 'current-password' });
     const go = async () => {
-      try { await V.convertMasterPassword(pw.value); toast('Done — next time it\'s just Touch ID / Face ID'); } catch (e) { toast('Wrong master password'); pw.value = ''; }
+      try { if (await V.convertMasterPassword(pw.value)) toast('Done — next time it\'s just Touch ID / Face ID'); } catch (e) { toast('Wrong master password'); pw.value = ''; }
     };
     pw.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });
     page.append(card(h('div', { style: { padding: '12px' } }, pw, h('div', { style: { height: '8px' } }),
@@ -86,7 +86,6 @@ async function renderLocked(page) {
     return;
   }
   const open = async () => {
-    if (!await P.verify()) return;
     try { await V.openProtected(); } catch (e) { toast('Couldn\'t open Credentials: ' + e.message); }
   };
   page.appendChild(empty('🔒\nYour credentials are encrypted on this device.'));

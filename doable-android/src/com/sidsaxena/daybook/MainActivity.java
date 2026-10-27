@@ -133,7 +133,7 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
-        db = new Db(this);
+        db = Db.get(this);
         st = new Store(db);
         prefs = getSharedPreferences("daybook", MODE_PRIVATE);
 
@@ -163,7 +163,9 @@ public class MainActivity extends Activity {
         }
 
         locked = lockEnabled() && (savedInstanceState == null || savedInstanceState.getBoolean("locked", true));
-        int module = java.util.Arrays.asList(MODULE_IDS).indexOf(prefs.getString("module_id", "today"));
+        // After a crash, open on the first page instead of where it crashed, and offer the report.
+        final java.io.File crash = App.crashFile(this);
+        int module = crash.exists() ? -1 : java.util.Arrays.asList(MODULE_IDS).indexOf(prefs.getString("module_id", "today"));
         if (module < 0 || !isModuleVisible(MODULE_IDS[module])) module = firstVisible();
         show(module, false);
 
@@ -174,7 +176,14 @@ public class MainActivity extends Activity {
             }
         }).start();
         setupShortcuts();
-        if (SyncEngine.enabled(this)) SyncJob.schedule(this); // replaces the slower schedule of older versions
+        if (SyncEngine.enabled(this)) {
+            try {
+                SyncJob.schedule(this); // replaces the slower schedule of older versions
+            } catch (RuntimeException e) {
+                // background sync is a bonus; Doable syncs while open anyway
+            }
+        }
+        if (crash.exists()) showCrashReport(crash);
         String restored = prefs.getString("restoreMsg", null);
         if (restored != null) {
             prefs.edit().remove("restoreMsg").apply();
@@ -600,6 +609,34 @@ public class MainActivity extends Activity {
     }
 
     // ---------------------------------------------------------------- helpers for screens
+
+    /** The note App kept about the last crash: shown once, with a button to send it on. */
+    private void showCrashReport(java.io.File crash) {
+        String text;
+        try {
+            byte[] b = new byte[(int) Math.min(crash.length(), 20000)];
+            java.io.DataInputStream in = new java.io.DataInputStream(new java.io.FileInputStream(crash));
+            try {
+                in.readFully(b);
+            } finally {
+                in.close();
+            }
+            text = new String(b, "UTF-8");
+        } catch (Exception e) {
+            text = "(could not read the report)";
+        }
+        crash.delete();
+        final String report = text;
+        new AlertDialog.Builder(this)
+                .setTitle("Doable stopped last time")
+                .setMessage("Sorry about that. Please send this report so it can be fixed — it only says where Doable failed, "
+                        + "not your data.\n\n" + (report.length() > 600 ? report.substring(0, 600) + "…" : report))
+                .setPositiveButton("Send report", new DialogInterface.OnClickListener() {
+                    public void onClick(DialogInterface d, int w) { shareText("Doable crash report", report); }
+                })
+                .setNegativeButton("Close", null)
+                .show();
+    }
 
     void shareText(String subject, String text) {
         Intent send = new Intent(Intent.ACTION_SEND);
