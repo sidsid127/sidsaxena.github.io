@@ -51,47 +51,15 @@ final class SyncUi {
             b.setPositiveButton("Turn on", new DialogInterface.OnClickListener() {
                 public void onClick(DialogInterface d, int w) { turnOn(a); }
             });
-            b.setNeutralButton("Google client…", new DialogInterface.OnClickListener() {
-                public void onClick(DialogInterface d, int w) { clientDialog(a, null); }
-            });
         }
         b.show();
     }
 
-    /** The Google Cloud "Desktop app" client (doable/GOOGLE-SETUP.md). */
-    private static void clientDialog(final MainActivity a, final Runnable then) {
-        LinearLayout box = Util.dialogBox(a);
-        TextView t = new TextView(a);
-        t.setText("Sync uses your own free Google Cloud project. Create a \"Desktop app\" OAuth client once (see GOOGLE-SETUP.md) "
-                + "and paste its client ID and secret here.");
-        t.setTextColor(Util.color(a, R.color.muted));
-        box.addView(t);
-        final EditText id = Util.field(a, GoogleDrive.clientId(a));
-        id.setHint("….apps.googleusercontent.com");
-        id.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
-        final EditText secret = Util.field(a, GoogleDrive.clientSecret(a));
-        secret.setHint("Client secret (GOCSPX-…)");
-        secret.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
-        box.addView(Util.label(a, "Client ID"));
-        box.addView(id);
-        box.addView(Util.label(a, "Client secret"));
-        box.addView(secret);
-        new AlertDialog.Builder(a).setTitle("Google client").setView(box)
-                .setPositiveButton("Save", new DialogInterface.OnClickListener() {
-                    public void onClick(DialogInterface d, int w) {
-                        SyncEngine.prefs(a).edit().putString("clientId", id.getText().toString().trim())
-                                .putString("clientSecret", secret.getText().toString().trim()).apply();
-                        if (then != null) then.run();
-                    }
-                })
-                .setNegativeButton("Cancel", null).show();
-    }
-
     private static void turnOn(final MainActivity a) {
         if (GoogleDrive.clientId(a).isEmpty()) {
-            clientDialog(a, new Runnable() {
-                public void run() { if (!GoogleDrive.clientId(a).isEmpty()) turnOn(a); }
-            });
+            new AlertDialog.Builder(a).setTitle("Sync with Google")
+                    .setMessage("Sync isn't switched on in this version of Doable yet. It will work in the next update — no setup needed on your side.")
+                    .setPositiveButton("OK", null).show();
             return;
         }
         if (GoogleDrive.signedIn(a)) {

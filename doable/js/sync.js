@@ -83,7 +83,7 @@ function authUrl() {
 
 /** Must run from a tap (pop-ups). Falls back to a full-page redirect when pop-ups are blocked. */
 export function signIn() {
-  if (!clientId()) { setupClientId(); return; }
+  if (!clientId()) { notAvailable(); return; }
   const url = authUrl();
   const w = window.open(url, 'doable-auth', 'width=480,height=640');
   if (!w) location.href = url;
@@ -98,12 +98,8 @@ async function afterSignIn() {
   if (pendingAfterSignIn) { const f = pendingAfterSignIn; pendingAfterSignIn = null; f(); } else if (cfg().enabled) syncNow(false);
 }
 
-async function setupClientId() {
-  const id = await prompt('Google client ID', localStorage.getItem('doable.clientId') || '', {
-    placeholder: '1234-abc.apps.googleusercontent.com',
-    message: 'Sync uses your own Google Cloud project (free). Follow GOOGLE-SETUP.md once, then paste the "Web application" client ID here.',
-  });
-  if (id) localStorage.setItem('doable.clientId', id.trim());
+function notAvailable() {
+  alert('Sync with Google', 'Sync isn\'t switched on in this version of Doable yet. It will work after the next update — no setup needed on your side.');
 }
 
 // ------------------------------------------------------------------ Drive REST
@@ -367,7 +363,6 @@ export function settingsSheet() {
         if (!await confirm('Turn off sync?', 'This device keeps its data; other devices keep syncing.', 'Turn off')) return;
         ls.del('doable.token'); await S.kv.del('syncKey'); syncKey = null; setCfg({ enabled: false, error: '' }); s.close();
       } }) : null,
-      row({ icon: '⚙️', title: 'Google client ID', sub: clientId() ? clientId().slice(0, 28) + '…' : 'Not set — see GOOGLE-SETUP.md', onclick: () => { s.close(); setupClientId(); } }),
     ), h('div.section', 'Backup file'), card(
       row({ icon: '💾', title: 'Download a backup file', sub: 'Everything in one file, encrypted with a password you choose', onclick: () => { s.close(); backup(); } }),
       row({ icon: '↩', title: 'Restore from a backup file', sub: 'Adds the backup\'s data to this device (newer versions win)', onclick: () => { s.close(); restore(); } }),
@@ -377,7 +372,7 @@ export function settingsSheet() {
 }
 
 function enable() {
-  if (!clientId()) { setupClientId(); return; }
+  if (!clientId()) { notAvailable(); return; }
   setCfg({ enabled: true, error: '' });
   if (token()) { syncNow(true); return; }
   pendingAfterSignIn = () => syncNow(true);
