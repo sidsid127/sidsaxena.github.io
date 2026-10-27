@@ -86,7 +86,7 @@ from the passphrase and check it by decrypting. A wrong passphrase fails the GCM
 | dates | title, kind, month, day, year, yearly, remind_days, notes, created |
 | checklists | title, trip→trips, template, created |
 | checklist_items | list→checklists, text, done, position |
-| logins | type, title, url, user, password, number, holder, expiry, cvv, pin, notes, modified (passwords; uid = login id) |
+| logins | type, title, folder, url, user, password, number, holder, expiry, cvv, pin, notes, modified (passwords; uid = login id) |
 
 Locked notes are stored with their plain `body` and `locked: 1` — the document itself is encrypted.
 

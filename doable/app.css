@@ -65,7 +65,7 @@ input, textarea, select { font: inherit; color: inherit; }
   #side { position: static; transform: none; box-shadow: none; }
   #side.open { box-shadow: none; }
   #scrim { display: none !important; }
-  #nav-btn.menu-only { visibility: hidden; }
+  body.side-hidden #side { display: none; }
   #view { max-width: 820px; width: 100%; margin: 0 auto; }
 }
 .side-head { display: flex; align-items: center; gap: 12px; padding: 18px 18px 10px; font-weight: 700; font-size: 20px; }

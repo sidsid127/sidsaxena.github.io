@@ -15,7 +15,7 @@
     <string name="module_tasks">To-do</string>
     <string name="module_notes">Notes</string>
     <string name="module_grocery">Groceries</string>
-    <string name="module_vault">Passwords</string>
+    <string name="module_vault">Credentials</string>
     <string name="module_log">Activity log</string>
     <string name="module_diary">My Diary</string>
     <string name="module_trips">My Trips</string>
@@ -23,8 +23,8 @@
     <string name="new_note">New note</string>
     <string name="empty_notes">No notes yet.\nTap + to write one.</string>
     <string name="hint_item">Add an item…</string>
-    <string name="vault_locked">Your passwords are encrypted on this phone.</string>
-    <string name="empty_vault">No passwords saved yet.\nTap + to add one.</string>
+    <string name="vault_locked">Your credentials are encrypted on this phone.</string>
+    <string name="empty_vault">No credentials saved yet.\nTap + to add one.</string>
     <string name="module_today">Today</string>
     <string name="module_habits">Habits</string>
     <string name="module_wallet">Wallet</string>

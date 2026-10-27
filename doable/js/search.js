@@ -1,4 +1,4 @@
-// Search across all modules (passwords are searched inside Passwords, after unlocking).
+// Search across all modules (credentials are searched inside Credentials, after unlocking).
 import * as S from './store.js';
 import * as L from './logic.js';
 import { app } from './ctx.js';

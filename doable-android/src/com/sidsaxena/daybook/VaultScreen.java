@@ -30,6 +30,8 @@ import android.widget.Toast;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Comparator;
+import java.util.Collections;
 
 /** Encrypted logins (website, membership numbers, …). Locks whenever you leave it. */
 class VaultScreen extends Screen {
@@ -44,6 +46,11 @@ class VaultScreen extends Screen {
     private final View lockedPanel, openPanel;
     private final TextView lockedText;
     private final EditText search;
+    private final View folderBar;
+    private final LinearLayout folderChips;
+    private static final String NONE = "\u0000none"; // the "No folder" chip
+    private String folder = "";                        // selected folder chip ("" = all)
+    private boolean showFolder;                        // folder name in each row (all / search results)
     private final List<Vault.Login> rows = new ArrayList<Vault.Login>();
     private final RowAdapter adapter = new RowAdapter();
     private boolean prompting;
@@ -59,6 +66,9 @@ class VaultScreen extends Screen {
         openPanel = root.findViewById(R.id.open_panel);
         lockedText = (TextView) root.findViewById(R.id.locked_text);
         search = (EditText) root.findViewById(R.id.search);
+        search.setHint("Search: name, folder, email, website…");
+        folderBar = root.findViewById(R.id.folder_bar);
+        folderChips = (LinearLayout) root.findViewById(R.id.folder_chips);
         ListView list = (ListView) root.findViewById(R.id.list);
         TextView empty = (TextView) root.findViewById(R.id.empty);
         empty.setText(R.string.empty_vault);
@@ -69,7 +79,11 @@ class VaultScreen extends Screen {
             public void onClick(View v) { unlock(); }
         });
         root.findViewById(R.id.add).setOnClickListener(new View.OnClickListener() {
-            public void onClick(View v) { edit(new Vault.Login()); }
+            public void onClick(View v) {
+                Vault.Login l = new Vault.Login();
+                if (!folder.equals(NONE)) l.folder = folder;
+                edit(l);
+            }
         });
         list.setOnItemClickListener(new AdapterView.OnItemClickListener() {
             public void onItemClick(AdapterView<?> parent, View view, int position, long id) {
@@ -208,14 +222,60 @@ class VaultScreen extends Screen {
 
     private void reload() {
         rows.clear();
-        if (!vault.isOpen()) return;
-        String q = search.getText().toString().trim().toLowerCase(Locale.getDefault());
-        for (Vault.Login l : vault.logins()) {
-            if (q.isEmpty() || (l.title + " " + l.user + " " + l.url + " " + l.type + " " + l.notes).toLowerCase(Locale.getDefault()).contains(q)) {
-                rows.add(l);
+        folderChips.removeAllViews();
+        folderBar.setVisibility(View.GONE);
+        if (!vault.isOpen()) {
+            adapter.notifyDataSetChanged();
+            return;
+        }
+        List<Vault.Login> all = vault.logins();
+        String q = search.getText().toString().trim();
+        List<String> folders = CredentialSearch.folders(all);
+        if (!folder.isEmpty() && !folder.equals(NONE) && !folders.contains(folder)) folder = "";
+        if (!q.isEmpty()) {
+            // Searching looks through every folder, best matches first.
+            rows.addAll(CredentialSearch.search(all, q));
+            showFolder = true;
+        } else {
+            int loose = 0;
+            for (Vault.Login l : all) {
+                if (l.folder.isEmpty()) loose++;
+                if (folder.isEmpty() || (folder.equals(NONE) ? l.folder.isEmpty() : l.folder.equals(folder))) rows.add(l);
+            }
+            showFolder = folder.isEmpty();
+            if (folder.isEmpty()) {
+                // All: by folder (no folder last), then by name.
+                Collections.sort(rows, new Comparator<Vault.Login>() {
+                    public int compare(Vault.Login x, Vault.Login y) {
+                        if (x.folder.isEmpty() != y.folder.isEmpty()) return x.folder.isEmpty() ? 1 : -1;
+                        int d = x.folder.compareToIgnoreCase(y.folder);
+                        return d != 0 ? d : x.title.compareToIgnoreCase(y.title);
+                    }
+                });
+            }
+            if (!folders.isEmpty()) {
+                folderBar.setVisibility(View.VISIBLE);
+                addFolderChip("All · " + all.size(), "");
+                for (String f : folders) {
+                    int n = 0;
+                    for (Vault.Login l : all) if (l.folder.equals(f)) n++;
+                    addFolderChip(f + " · " + n, f);
+                }
+                if (loose > 0) addFolderChip("No folder · " + loose, NONE);
             }
         }
         adapter.notifyDataSetChanged();
+    }
+
+    private void addFolderChip(String text, final String value) {
+        TextView c = Util.chip(a, text, Util.color(a, R.color.primary), folder.equals(value));
+        c.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                folder = value;
+                reload();
+            }
+        });
+        folderChips.addView(c);
     }
 
     private void copy(String label, String value, boolean sensitive) {
@@ -333,6 +393,19 @@ class VaultScreen extends Screen {
         int text = InputType.TYPE_CLASS_TEXT, words = text | InputType.TYPE_TEXT_FLAG_CAP_WORDS;
         int secret = text | InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD, digits = InputType.TYPE_CLASS_NUMBER;
         final EditText title = input(box, "Name", l.title, "e.g. Facebook, Marriott Bonvoy, Home Wi-Fi", words);
+        box.addView(Util.label(a, "Folder"));
+        final android.widget.AutoCompleteTextView folderField = new android.widget.AutoCompleteTextView(a);
+        folderField.setText(l.folder);
+        folderField.setHint("e.g. Private, Demo lab");
+        folderField.setInputType(words);
+        folderField.setSingleLine(true);
+        folderField.setThreshold(0);
+        folderField.setAdapter(new android.widget.ArrayAdapter<String>(a, android.R.layout.simple_dropdown_item_1line,
+                vault.isOpen() ? CredentialSearch.folders(vault.logins()) : new ArrayList<String>()));
+        folderField.setOnFocusChangeListener(new View.OnFocusChangeListener() {
+            public void onFocusChange(View v, boolean has) { if (has && folderField.getAdapter().getCount() > 0) folderField.showDropDown(); }
+        });
+        box.addView(folderField);
         final EditText url = input(box, "Website or app (for autofill)", l.url, "e.g. facebook.com", text | InputType.TYPE_TEXT_VARIATION_URI);
         final EditText user = input(box, "Username / email / membership ID", l.user, "", text | InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS);
         final EditText pass = input(box, "Password", l.password, "", secret);
@@ -379,6 +452,7 @@ class VaultScreen extends Screen {
                         l.type = Vault.TYPES[type.getSelectedItemPosition()];
                         String t = title.getText().toString().trim();
                         l.title = t.isEmpty() ? (l.title.isEmpty() ? "Untitled" : l.title) : t;
+                        l.folder = folderField.getText().toString().trim();
                         l.url = url.getText().toString().trim();
                         l.user = user.getText().toString().trim();
                         l.password = pass.getText().toString();
@@ -550,7 +624,7 @@ class VaultScreen extends Screen {
                     + (l.expiry.isEmpty() ? "" : " · " + l.expiry)
                     : l.type.equals("Secure note") ? "Secure note" : l.type.equals("Wi-Fi") ? "Wi-Fi password"
                     : (l.user.isEmpty() ? "No username" : l.user) + (l.url.isEmpty() ? "" : " · " + Vault.host(l.url));
-            ((TextView) view.findViewById(R.id.user)).setText(sub);
+            ((TextView) view.findViewById(R.id.user)).setText(showFolder && !l.folder.isEmpty() ? "📁 " + l.folder + " · " + sub : sub);
             final boolean copyable = !l.type.equals("Secure note");
             view.findViewById(R.id.copy).setVisibility(copyable ? View.VISIBLE : View.INVISIBLE);
             view.findViewById(R.id.copy).setOnClickListener(new View.OnClickListener() {

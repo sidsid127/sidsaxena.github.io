@@ -88,6 +88,10 @@ function buildSide() {
 }
 app.syncStatusChanged = () => { const el = $('#sync-status'); if (el) el.textContent = Sync.statusLine(); };
 
+// Wide screens show the menu beside the content; the ☰ button hides it (e.g. while sharing the screen).
+const wide = () => matchMedia('(min-width: 900px)').matches;
+function applySide() { document.body.classList.toggle('side-hidden', !!S.settings.sideHidden); }
+
 function openSide() {
   $('#side').classList.add('open');
   $('#scrim').hidden = false;
@@ -141,7 +145,7 @@ function settingsMenu() {
     { label: 'Notifications while Doable is open', action: askNotifications },
     { label: 'Install on this device…', action: installHelp },
     { label: 'About Doable', action: () => alert('Doable', 'Your data is stored on this device. With sync turned on, it is '
-      + 'end-to-end encrypted with your sync passphrase before it goes to your own Google Drive.\n\nVersion 6.2 (web)') },
+      + 'end-to-end encrypted with your sync passphrase before it goes to your own Google Drive.\n\nVersion 6.4 (web)') },
   ]);
 }
 
@@ -170,7 +174,7 @@ function openSearch() {
     const q = input.value.trim();
     if (q.length < 2) {
       results.appendChild(h('p.muted', 'Tasks, notes, diary, trips & expenses, groceries, habits, dates, checklists, wallet and the log. '
-        + 'Passwords are searched inside Passwords.'));
+        + 'Credentials are searched inside Credentials.'));
       return;
     }
     const hits = searchAll(q);
@@ -229,8 +233,10 @@ async function start() {
   clear($('#more-btn')).appendChild(icon('more'));
   $('#nav-btn').addEventListener('click', () => {
     if (current.isDeep && current.isDeep() && current.back) { current.back(); bar(); return; }
+    if (wide()) { S.settings.sideHidden = !S.settings.sideHidden; S.saveSettings(); applySide(); return; }
     if ($('#side').classList.contains('open')) closeSide(); else openSide();
   });
+  applySide();
   $('#scrim').addEventListener('click', closeSide);
   $('#search-btn').addEventListener('click', openSearch);
   $('#more-btn').addEventListener('click', () => {

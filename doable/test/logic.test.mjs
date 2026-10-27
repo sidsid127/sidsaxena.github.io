@@ -82,5 +82,25 @@ eq('paste', L.checklistParse(pasted).map((l) => (l.done ? '+' : '') + l.text).jo
 eq('heading', [L.checklistHeading(pasted), L.checklistHeading('Milk\nEggs')], ['Packing', null]);
 
 eq('csv', L.csvParse('a;b\n"x;y";"q""uote"\n'), [['a', 'b'], ['x;y', 'q"uote']]);
+// Credentials search
+const creds = [
+  { title: 'Gmail', folder: 'Private', user: 'sid@gmail.com', url: 'mail.google.com', password: 'demo-secret', notes: '', type: 'Login' },
+  { title: 'Salesforce demo org', folder: 'Demo lab', user: 'admin@demo.example', url: 'login.salesforce.com', notes: '', type: 'Login' },
+  { title: 'ServiceNow', folder: 'Demo lab', user: 'sid@gmail.com', url: 'dev123.service-now.com', notes: '', type: 'Login' },
+  { title: 'Netflix', folder: '', user: 'sid@gmail.com', url: 'netflix.com', notes: 'family plan', type: 'Login' },
+  { title: 'Home Wi-Fi', folder: 'Private', user: '', url: '', notes: '', type: 'Wi-Fi' },
+  { title: 'Café login', folder: 'Private', user: 'x', url: '', notes: '', type: 'Login' },
+];
+const names = (q) => L.searchCredentials(creds, q).map((c) => c.title);
+eq('cs demo: name first, then folder; never the password', names('demo'), ['Salesforce demo org', 'ServiceNow']);
+eq('cs gmail: name, then everything with a gmail login', names('gmail'), ['Gmail', 'Netflix', 'ServiceNow']);
+eq('cs two words narrow down', names('gmail demo'), ['ServiceNow']);
+eq('cs folder + type', names('private wi-fi'), ['Home Wi-Fi']);
+eq('cs notes', names('family'), ['Netflix']);
+eq('cs accents ignored', names('cafe'), ['Café login']);
+eq('cs case', names('NETFLIX'), ['Netflix']);
+eq('cs empty = all', L.searchCredentials(creds, '  ').length, 6);
+eq('cs no match', names('zzz'), []);
+eq('cs folders', L.credentialFolders(creds), ['Demo lab', 'Private']);
 console.log(`passes=${pass} fails=${fail}`);
 process.exit(fail ? 1 : 0);

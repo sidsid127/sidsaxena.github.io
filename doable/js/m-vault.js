@@ -1,9 +1,11 @@
-// Passwords: logins, bank cards, secure notes, Wi-Fi — encrypted, opened with Face ID / Touch ID.
+// Credentials: logins, bank cards, secure notes, Wi-Fi in folders (Private, Demo lab…) — encrypted, opened with
+// Face ID / Touch ID. The search looks through names, folders, usernames / emails, websites and notes.
 import * as V from './vault.js';
 import * as L from './logic.js';
 import * as P from './protect.js';
 import { app } from './ctx.js';
-import { h, card, row, empty, sheet, field, input, textarea, select, menu, prompt, confirm, toast, pickFiles } from './ui.js';
+import * as S from './store.js';
+import { h, card, row, chip, header, empty, sheet, field, input, textarea, select, menu, prompt, confirm, toast, pickFiles } from './ui.js';
 
 const TYPES = ['Login', 'Bank card', 'Secure note', 'Wi-Fi'];
 const ICON = { Login: '🔑', 'Bank card': '💳', 'Secure note': '📝', 'Wi-Fi': '📶' };
@@ -15,30 +17,64 @@ async function render(view) {
   const page = h('div.page');
   view.appendChild(page);
   if (!V.isOpen()) { await renderLocked(page); return; }
-  const search = h('input.field', { type: 'search', placeholder: 'Search passwords', value: query });
+  const search = h('input.field', { type: 'search', placeholder: 'Search: name, folder, email, website…', value: query, autocomplete: 'off' });
+  const chips = h('div.chips');
   const results = h('div');
+  const all = V.logins();
+  const folders = L.credentialFolders(all);
+  let sel = S.settings.credFolder || '';
+  if (sel && sel !== NONE && !folders.includes(sel)) sel = '';
+  const pick = (f) => { sel = f; S.settings.credFolder = f; S.saveSettings(); draw(); };
+  const sub = (l, withFolder) => [withFolder && l.folder ? '📁 ' + l.folder : '',
+    l.type === 'Bank card' ? '•••• ' + (l.number || '').replace(/\s/g, '').slice(-4) : l.type === 'Wi-Fi' ? 'Wi-Fi' : l.type === 'Secure note' ? 'Secure note'
+      : [l.user, host(l.url)].filter(Boolean).join(' · ')].filter(Boolean).join(' · ');
+  const item = (l, withFolder) => row({ icon: ICON[l.type] || '🔑', title: l.title, sub: sub(l, withFolder), onclick: () => details(l) });
   const draw = () => {
     results.textContent = '';
-    const q = query.trim().toLowerCase();
-    const list = V.logins().filter((l) => !q || [l.title, l.url, l.user, l.notes].some((x) => (x || '').toLowerCase().includes(q)));
-    if (!list.length) { results.appendChild(empty(q ? 'Nothing matches.' : 'No passwords saved yet.\nTap + to add one.')); return; }
-    results.appendChild(card(list.map((l) => row({ icon: ICON[l.type] || '🔑', title: l.title,
-      sub: l.type === 'Bank card' ? '•••• ' + (l.number || '').replace(/\s/g, '').slice(-4) : l.type === 'Wi-Fi' ? 'Wi-Fi' : l.type === 'Secure note' ? 'Secure note' : [l.user, host(l.url)].filter(Boolean).join(' · '),
-      onclick: () => details(l) }))));
+    chips.textContent = '';
+    const q = query.trim();
+    if (folders.length && !q) {
+      chips.append(chip('All · ' + all.length, { selected: !sel, onclick: () => pick('') }),
+        ...folders.map((f) => chip(f + ' · ' + all.filter((l) => l.folder === f).length, { selected: sel === f, onclick: () => pick(f) })));
+      const loose = all.filter((l) => !l.folder).length;
+      if (loose) chips.append(chip('No folder · ' + loose, { selected: sel === NONE, onclick: () => pick(NONE) }));
+    }
+    if (q) {
+      // Searching looks through every folder.
+      const found = L.searchCredentials(all, q);
+      if (!found.length) { results.appendChild(empty('Nothing matches "' + q + '".')); return; }
+      results.append(h('p.muted', found.length + ' found'), card(found.map((l) => item(l, true))));
+      return;
+    }
+    if (!all.length) { results.appendChild(empty('No credentials saved yet.\nTap + to add one.')); return; }
+    if (sel) {
+      const list = all.filter((l) => (sel === NONE ? !l.folder : l.folder === sel));
+      results.appendChild(list.length ? card(list.map((l) => item(l, false))) : empty('Nothing in this folder.'));
+      return;
+    }
+    // All: grouped by folder, the ones without a folder last.
+    for (const f of [...folders, '']) {
+      const list = all.filter((l) => (l.folder || '') === f);
+      if (!list.length) continue;
+      if (folders.length) results.appendChild(header(f || 'No folder'));
+      results.appendChild(card(list.map((l) => item(l, false))));
+    }
   };
   search.addEventListener('input', () => { query = search.value; draw(); });
-  page.append(search, results);
+  page.append(search, chips, results);
   draw();
-  view.appendChild(h('button.fab', { type: 'button', 'aria-label': 'Add', onclick: () => edit({ type: 'Login' }) }, '+'));
+  if (!query) setTimeout(() => search.focus(), 50);
+  view.appendChild(h('button.fab', { type: 'button', 'aria-label': 'Add', onclick: () => edit({ type: 'Login', folder: sel && sel !== NONE ? sel : '' }) }, '+'));
 }
 
+const NONE = '\u0000none'; // the "No folder" chip
 const host = (url) => { try { return new URL(/^\w+:/.test(url) ? url : 'https://' + url).hostname.replace(/^www\./, ''); } catch (e) { return url || ''; } };
 
 async function renderLocked(page) {
-  if (!P.isOn()) { page.replaceWith(P.setupCard('your passwords')); return; }
+  if (!P.isOn()) { page.replaceWith(P.setupCard('your credentials')); return; }
   if (await V.needsMasterPassword()) {
     // Vault from an older version: its master password one last time, then Face ID / Touch ID only.
-    page.appendChild(empty('🔑\nOne last time: enter your old master password.\nFrom now on Passwords opens with Touch ID / Face ID.'));
+    page.appendChild(empty('🔑\nOne last time: enter your old master password.\nFrom now on Credentials opens with Touch ID / Face ID.'));
     const pw = input('', { type: 'password', placeholder: 'Master password', autocomplete: 'current-password' });
     const go = async () => {
       try { await V.convertMasterPassword(pw.value); toast('Done — next time it\'s just Touch ID / Face ID'); } catch (e) { toast('Wrong master password'); pw.value = ''; }
@@ -51,11 +87,11 @@ async function renderLocked(page) {
   }
   const open = async () => {
     if (!await P.verify()) return;
-    try { await V.openProtected(); } catch (e) { toast('Couldn\'t open Passwords: ' + e.message); }
+    try { await V.openProtected(); } catch (e) { toast('Couldn\'t open Credentials: ' + e.message); }
   };
-  page.appendChild(empty('🔒\nYour passwords are encrypted on this device.'));
+  page.appendChild(empty('🔒\nYour credentials are encrypted on this device.'));
   page.appendChild(h('button.btn.primary.block', { type: 'button', onclick: open }, P.usesFace() ? 'Unlock with Touch ID / Face ID' : 'Unlock'));
-  if (!autoTried) { autoTried = true; setTimeout(open, 200); } // ask right away once each time Passwords is opened
+  if (!autoTried) { autoTried = true; setTimeout(open, 200); } // ask right away once each time Credentials is opened
 }
 let autoTried = false;
 
@@ -86,6 +122,11 @@ function edit(l) {
   const isNew = !l.uid;
   const type = select(TYPES, l.type || 'Login');
   const title = input(l.title || '', { placeholder: 'e.g. Amazon, Home Wi-Fi' });
+  // Folder: type a new one or pick an existing one from the suggestions.
+  const folders = L.credentialFolders(V.logins());
+  const folder = input(l.folder || '', { placeholder: 'e.g. Private, Demo lab', list: 'cred-folders', autocomplete: 'off' });
+  const folderList = h('datalist#cred-folders', folders.map((f) => h('option', { value: f })));
+  const folderChips = folders.length ? h('div.chips', folders.map((f) => chip(f, { onclick: () => { folder.value = f; } }))) : null;
   const url = input(l.url || '', { placeholder: 'amazon.de', autocapitalize: 'off' });
   const user = input(l.user || '', { autocapitalize: 'off', autocomplete: 'off' });
   const pass = input(l.password || '', { autocapitalize: 'off', autocomplete: 'off', class: 'field secret' });
@@ -112,11 +153,11 @@ function edit(l) {
   sync();
   const buttons = [{ label: 'Cancel' }, { label: 'Save', primary: true, action: async () => {
     if (!title.value.trim()) { toast('Give it a name'); return false; }
-    await V.putLogin({ uid: l.uid, type: type.value, title: title.value.trim(), url: url.value.trim(), user: user.value.trim(), password: pass.value,
+    await V.putLogin({ uid: l.uid, type: type.value, title: title.value.trim(), folder: folder.value.trim(), url: url.value.trim(), user: user.value.trim(), password: pass.value,
       number: number.value.trim(), holder: holder.value.trim(), expiry: expiry.value.trim(), cvv: cvv.value.trim(), pin: pin.value.trim(), notes: notes.value });
   } }];
   if (!isNew) buttons.unshift({ label: 'Delete', danger: true, action: async () => { if (await confirm('Delete "' + l.title + '"?', null, 'Delete')) await V.deleteLogin(l.uid); } });
-  sheet({ title: isNew ? 'New' : 'Edit', dismissable: false, body: [field('Type', type), field('Name', title), rows.url, rows.user, rows.pass, rows.number, rows.holder, rows.card2,
+  sheet({ title: isNew ? 'New' : 'Edit', dismissable: false, body: [field('Type', type), field('Name', title), field('Folder', [folder, folderList, folderChips]), rows.url, rows.user, rows.pass, rows.number, rows.holder, rows.card2,
     field('Notes', notes)], buttons });
 }
 
@@ -146,7 +187,7 @@ async function importCsv() {
 
 export default {
   id: 'vault',
-  name: 'Passwords',
+  name: 'Credentials',
   icon: 'key',
   tables: [],
   render,

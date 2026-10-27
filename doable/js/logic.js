@@ -457,6 +457,35 @@ export function barcodeSvg(code, height = 80) {
 
 // ------------------------------------------------------------------ csv
 
+const fold = (s) => (s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+
+/**
+ * Credentials search: every word must be found in the name, folder, username / email, website, card holder, type or
+ * notes (never in the secrets themselves). Best matches first: name, then folder, then username / website.
+ */
+export function searchCredentials(list, query) {
+  const words = fold(query).split(/\s+/).filter(Boolean);
+  if (!words.length) return list;
+  const out = [];
+  for (const l of list) {
+    const f = { title: fold(l.title), folder: fold(l.folder), user: fold(l.user), url: fold(l.url), holder: fold(l.holder), type: fold(l.type), notes: fold(l.notes) };
+    let score = 0;
+    for (const w of words) {
+      const s = f.title.startsWith(w) ? 7 : f.title.includes(w) ? 6 : f.folder.includes(w) ? 5 : f.user.includes(w) || f.url.includes(w) ? 4
+        : f.holder.includes(w) || f.type.includes(w) ? 2 : f.notes.includes(w) ? 1 : 0;
+      if (!s) { score = -1; break; }
+      score += s;
+    }
+    if (score > 0) out.push([score, l]);
+  }
+  return out.sort((a, b) => b[0] - a[0] || a[1].title.localeCompare(b[1].title)).map((x) => x[1]);
+}
+
+/** Folder names in use, sorted. */
+export function credentialFolders(list) {
+  return [...new Set(list.map((l) => (l.folder || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+}
+
 export function csvParse(text) {
   if (text.startsWith('﻿')) text = text.slice(1);
   const first = text.split('\n')[0];

@@ -33,7 +33,7 @@ export const SCHEMA = {
   dates: { title: '', kind: 'Birthday', month: 1, day: 1, year: 0, yearly: 1, remind_days: 1, notes: '', created: 0 },
   checklists: { title: '', trip: REF('trips'), template: 0, created: 0 },
   checklist_items: { list: REF('checklists'), text: '', done: 0, position: 0 },
-  logins: { type: 'Login', title: '', url: '', user: '', password: '', number: '', holder: '', expiry: '', cvv: '', pin: '', notes: '', modified: 0 },
+  logins: { type: 'Login', title: '', folder: '', url: '', user: '', password: '', number: '', holder: '', expiry: '', cvv: '', pin: '', notes: '', modified: 0 },
 };
 export const TABLES = Object.keys(SCHEMA);
 export const OWNER_TABLE = { note: 'notes', diary: 'diary', expense: 'expenses', trip_item: 'trip_items', wallet: 'wallet' };

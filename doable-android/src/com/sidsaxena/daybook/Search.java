@@ -96,7 +96,7 @@ final class Search {
         dialog.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE
                 | WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
         hint("Tasks, notes, diary, trips & expenses, groceries, habits, dates, checklists, wallet and the activity log.\n\n"
-                + "Passwords are searched inside Passwords, after unlocking.");
+                + "Credentials are searched inside Credentials, after unlocking.");
         field.requestFocus();
     }
 

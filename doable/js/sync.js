@@ -500,7 +500,7 @@ async function backup() {
   const key = await C.deriveKey(pw, salt, C.SYNC_ROUNDS);
   const bytes = await C.encryptDoc(key, salt, C.SYNC_ROUNDS, JSON.stringify({ format: 1, kind: 'backup', updated: Date.now(), tables, files: Object.keys(blobs), blobs }));
   download('Doable backup ' + new Date().toISOString().slice(0, 10) + '.doableweb', new Blob([bytes]));
-  if (!logins && await V.exists()) alert('Backup saved', 'Passwords were not included because the vault is locked and sync is off. Unlock Passwords first to include them.');
+  if (!logins && await V.exists()) alert('Backup saved', 'Credentials were not included because they are locked and sync is off. Open Credentials first to include them.');
 }
 
 async function restore() {
@@ -523,7 +523,7 @@ async function restore() {
   for (const [t, uid, e] of toApply) if (S.data[t]) S.applyRemote(t, uid, e);
   if (logins) {
     if (V.isOpen()) await V.syncApply(mergeTables({ logins: (await V.syncEntries()) || {} }, { logins }).tables.logins);
-    else toast('Unlock Passwords and restore again to bring back the passwords');
+    else toast('Open Credentials and restore again to bring back the credentials');
   }
   await S.flush();
   alert('Restored', `Backup from ${fmtStamp(doc.updated)} merged into this device.`);

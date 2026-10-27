@@ -47,6 +47,7 @@ public class Vault {
         public String id;
         public String type = "Login";
         public String title = "";
+        public String folder = "";    // e.g. "Private", "Demo lab"
         public String url = "";       // website or app, used by autofill
         public String user = "";
         public String password = "";  // also the Wi-Fi password
@@ -105,6 +106,7 @@ public class Vault {
                 Login l = new Login();
                 l.id = o.getString("id");
                 l.title = o.optString("title");
+                l.folder = o.optString("folder");
                 l.user = o.optString("user");
                 l.password = o.optString("password");
                 l.notes = o.optString("notes");
@@ -261,7 +263,7 @@ public class Vault {
     }
 
     private static JSONObject syncRow(Login l) throws JSONException {
-        return new JSONObject().put("type", l.type).put("title", l.title).put("url", l.url).put("user", l.user).put("password", l.password)
+        return new JSONObject().put("type", l.type).put("title", l.title).put("folder", l.folder).put("url", l.url).put("user", l.user).put("password", l.password)
                 .put("number", l.number).put("holder", l.holder).put("expiry", l.expiry).put("cvv", l.cvv).put("pin", l.pin)
                 .put("notes", l.notes).put("modified", l.modified);
     }
@@ -323,7 +325,7 @@ public class Vault {
     }
 
     static JSONObject toJson(Login l) throws JSONException {
-        return new JSONObject().put("id", l.id).put("type", l.type).put("title", l.title).put("url", l.url)
+        return new JSONObject().put("id", l.id).put("type", l.type).put("title", l.title).put("folder", l.folder).put("url", l.url)
                 .put("user", l.user).put("password", l.password).put("number", l.number).put("holder", l.holder)
                 .put("expiry", l.expiry).put("cvv", l.cvv).put("pin", l.pin).put("notes", l.notes)
                 .put("modified", l.modified);
@@ -334,6 +336,7 @@ public class Vault {
         l.id = o.optString("id", null);
         l.type = o.optString("type", "Login");
         l.title = o.optString("title");
+        l.folder = o.optString("folder");
         l.url = o.optString("url");
         l.user = o.optString("user");
         l.password = o.optString("password");
