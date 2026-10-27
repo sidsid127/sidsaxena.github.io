@@ -27,7 +27,7 @@ function render(view) {
     page.appendChild(empty('🔒\nYour cards and documents are protected.'));
     page.appendChild(h('button.btn.primary.block', { type: 'button', onclick: unlock }, P.usesFace() ? 'Unlock with Touch ID / Face ID' : 'Unlock'));
     view.appendChild(page);
-    if (!autoTried) { autoTried = true; setTimeout(unlock, 200); }
+    if (!autoTried) { autoTried = true; setTimeout(() => { if (app.current && app.current() && app.current().id === 'wallet') unlock(); }, 200); }
     return;
   }
   const list = S.all('wallet').sort((a, b) => a.type.localeCompare(b.type) || a.title.localeCompare(b.title));

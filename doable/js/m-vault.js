@@ -90,9 +90,11 @@ async function renderLocked(page) {
   };
   page.appendChild(empty('🔒\nYour credentials are encrypted on this device.'));
   page.appendChild(h('button.btn.primary.block', { type: 'button', onclick: open }, P.usesFace() ? 'Unlock with Touch ID / Face ID' : 'Unlock'));
-  if (!autoTried) { autoTried = true; setTimeout(open, 200); } // ask right away once each time Credentials is opened
+  // Ask right away, once each time Credentials is opened — and only while it is still the page on screen.
+  if (!autoTried) { autoTried = true; setTimeout(() => { if (onScreen()) open(); }, 200); }
 }
 let autoTried = false;
+const onScreen = () => app.current && app.current() && app.current().id === 'vault' && !document.hidden;
 
 function copy(label, value) {
   if (!value) return;
@@ -190,7 +192,7 @@ export default {
   icon: 'key',
   tables: [],
   render,
-  hide() { V.lock(); query = ''; autoTried = false; },
+  hide() { autoTried = true; V.lock(); query = ''; autoTried = false; },
   menu: () => (V.isOpen() ? [
     { label: '🔒 Lock now', action: () => V.lock() },
     { label: 'Import from CSV (Chrome, Bitwarden…)', action: importCsv },

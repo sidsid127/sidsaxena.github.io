@@ -279,18 +279,25 @@ function finishWithTap(cred, salt) {
 /** Creates the Touch ID / Face ID passkey: {cred, prfSalt, secret} (secret null without PRF), or {why} if it failed. */
 async function createFace() {
   if (!window.PublicKeyCredential) return { why: 'This browser has no Touch ID / Face ID support for websites.' };
-  if (!await faceIdAvailable()) {
-    return { why: 'This browser reports no Touch ID / Face ID for websites. On a Mac, check System Settings → Touch ID & Password. '
-      + 'On a company Mac, passkeys may be switched off — try Google Chrome instead of Safari.' };
-  }
+  // Some browsers say "no" here although Touch ID works (and a company Mac may block it): try anyway, report what happened.
+  const reported = await faceIdAvailable();
   const prfSalt = C.toB64(C.randomBytes(32));
   let c;
   try {
-    c = await createPasskey('device', { prf: { eval: { first: C.fromB64(prfSalt) } } });
+    const making = createPasskey('device', { prf: { eval: { first: C.fromB64(prfSalt) } } });
+    // When the browser already said "no Touch ID", don't wait forever for a window that may never come.
+    c = reported ? await making : await Promise.race([making, new Promise((resolve, reject) => setTimeout(() => {
+      const t = new Error('no answer from the browser'); t.name = 'TimeoutError'; reject(t);
+    }, 25000))]);
   } catch (e) {
-    return { why: (e.name === 'NotAllowedError' ? 'Touch ID was cancelled or isn\'t allowed here'
-      : e.name === 'InvalidStateError' ? 'A Doable passkey already exists on this device' : 'The browser refused: ' + e.name)
-      + ' (' + (e.message || '').slice(0, 160) + '). On a company Mac, passkeys / iCloud Keychain may be switched off — Google Chrome often still works.' };
+    const safari = /Safari/.test(navigator.userAgent) && !/Chrome|CriOS|Edg/.test(navigator.userAgent);
+    return { why: (reported ? '' : 'This browser reports no Touch ID / Face ID for websites. ')
+      + (e.name === 'NotAllowedError' ? 'Touch ID was cancelled or isn\'t allowed here'
+        : e.name === 'InvalidStateError' ? 'A Doable passkey already exists on this device'
+          : e.name === 'TimeoutError' ? 'No Touch ID window appeared' : 'The browser refused: ' + e.name)
+      + ' (' + (e.message || '').slice(0, 160) + ').'
+      + (safari ? ' Safari keeps passkeys in iCloud Keychain; on a company Mac that is often switched off. Google Chrome keeps its own '
+        + 'passkeys and usually still offers Touch ID — open doable-sid.vercel.app in Chrome.' : ' Check System Settings → Touch ID & Password.') };
   }
   const cred = C.toB64(new Uint8Array(c.rawId));
   const ext = c.getClientExtensionResults().prf;
