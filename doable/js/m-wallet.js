@@ -1,9 +1,9 @@
-// Wallet: loyalty cards with barcodes, ID, passport, licence, insurance cards — front/back photos, behind Face ID / PIN.
+// Wallet: loyalty cards with barcodes, ID, passport, licence, insurance cards — front/back photos, behind Face ID / Touch ID.
 import * as S from './store.js';
 import * as L from './logic.js';
 import * as A from './attach.js';
 import { app } from './ctx.js';
-import { verifyUser } from './lock.js';
+import * as P from './protect.js';
 import { h, header, card, row, empty, sheet, field, input, textarea, select, confirm, toast, fmtDay } from './ui.js';
 
 export const WALLET_TYPES = ['Loyalty card', 'ID card', 'Passport', 'Driving licence', 'Health insurance card', 'Insurance policy', 'Membership',
@@ -14,21 +14,24 @@ let unlocked = false;
 
 const mask = (n) => { const s = (n || '').replace(/ /g, ''); return s.length <= 4 ? s : '•••• ' + s.slice(-4); };
 
+let autoTried = false;
+
 async function unlock() {
-  if (await verifyUser('PIN to open Wallet')) { unlocked = true; app.refresh(); }
+  if (await P.verify()) { unlocked = true; app.refresh(); }
 }
 
 function render(view) {
+  if (!P.isOn()) { view.appendChild(P.setupCard('your wallet')); return; }
   const page = h('div.page');
-  if (!unlocked && S.settings.walletLock && S.settings.lock) {
+  if (!unlocked) {
     page.appendChild(empty('🔒\nYour cards and documents are protected.'));
-    page.appendChild(h('button.btn.block', { type: 'button', onclick: unlock }, 'Unlock'));
+    page.appendChild(h('button.btn.primary.block', { type: 'button', onclick: unlock }, P.usesFace() ? 'Unlock with Touch ID / Face ID' : 'Unlock'));
     view.appendChild(page);
+    if (!autoTried) { autoTried = true; setTimeout(unlock, 200); }
     return;
   }
   const list = S.all('wallet').sort((a, b) => a.type.localeCompare(b.type) || a.title.localeCompare(b.title));
   if (!list.length) page.appendChild(empty('Keep loyalty cards, ID, passport, driving licence and insurance cards here.\nTap + and photograph front and back.'));
-  if (!S.settings.lock) page.appendChild(h('div.banner', 'Tip: turn on the app lock (Settings) so Wallet asks for Face ID / PIN.'));
   let type = null, c;
   const today = L.today();
   for (const w of list) {
@@ -107,19 +110,18 @@ export default {
   icon: 'wallet',
   tables: ['wallet', 'attachments'],
   render,
-  hide() { unlocked = false; },
+  hide() { unlocked = false; autoTried = false; },
   async open(uid) {
     const w = S.get('wallet', uid);
     if (!w) return;
-    if (!unlocked && S.settings.walletLock && S.settings.lock) { await unlock(); if (!unlocked) return; }
+    if (!P.isOn() || !unlocked) { if (P.isOn()) await unlock(); if (!unlocked) return; }
     details(w);
   },
   /** Shared photos / PDFs become a new document. */
   async newWith(files) {
-    if (!unlocked && S.settings.walletLock && S.settings.lock) { await unlock(); if (!unlocked) return; }
+    if (!P.isOn() || !unlocked) { if (P.isOn()) await unlock(); if (!unlocked) return; }
     const draftUid = S.newUid();
     for (const f of files) await A.addFile('wallet', draftUid, f);
     edit({ type: 'Document', draftUid });
   },
-  menu: () => [{ label: (S.settings.walletLock ? '✓ ' : '') + 'Ask for Face ID / PIN', action: () => { S.settings.walletLock = !S.settings.walletLock; S.saveSettings(); } }],
 };

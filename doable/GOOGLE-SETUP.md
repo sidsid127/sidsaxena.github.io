@@ -52,6 +52,15 @@ Both IDs are built into the apps, so users only sign in:
 * **Android:** `GoogleDrive.DEFAULT_CLIENT_ID`, plus the matching redirect scheme
   `com.googleusercontent.apps.<client ID without .apps.googleusercontent.com>` in `AndroidManifest.xml`.
 
+## 5b. Keep the web app signed in
+
+Google only lets a web page stay signed in for an hour unless a server exchanges the sign-in with the web
+client's secret. `api/token.js` (a Vercel function) does that; the secret stays on Vercel:
+
+Vercel → project **doable** → **Settings → Environment Variables** → Key `GOOGLE_CLIENT_SECRET`, Value = the
+**Web** client's secret (Google Cloud → Clients → the web client) → **Save**, then redeploy. Without it the web app
+still works, but asks to sign in again after an hour.
+
 ## 6. Turn sync on
 
 1. On the first device: **Turn on sync** → sign in with Google → **choose a sync passphrase** (8+ characters,

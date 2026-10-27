@@ -64,6 +64,9 @@ final class Backup {
         action(a, box, "💾  Back up now", new Runnable() {
             public void run() { dlg[0].dismiss(); AutoBackup.backupNow(a); }
         });
+        action(a, box, AutoBackup.folderLabel(a), new Runnable() {
+            public void run() { dlg[0].dismiss(); AutoBackup.changeFolder(a); }
+        });
         action(a, box, "↩  Restore from a backup", new Runnable() {
             public void run() { dlg[0].dismiss(); pickRestore(a); }
         });

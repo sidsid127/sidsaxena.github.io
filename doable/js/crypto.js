@@ -67,5 +67,12 @@ export async function openJson(key, bytes) {
   const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: bytes.slice(0, 12) }, key, bytes.slice(12));
   return JSON.parse(dec.decode(pt));
 }
+export async function sealBytes(key, bytes) {
+  const iv = randomBytes(12);
+  return concat(iv, new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, bytes)));
+}
+export async function openBytes(key, bytes) {
+  return new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: bytes.slice(0, 12) }, key, bytes.slice(12)));
+}
 export const toB64 = (bytes) => btoa(Array.from(bytes, (b) => String.fromCharCode(b)).join(''));
 export const fromB64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));

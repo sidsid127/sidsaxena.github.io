@@ -112,6 +112,26 @@ final class AutoBackup {
         else fullSetup(a, 0);
     }
 
+    static String folderLabel(Context c) {
+        return configured(c) ? "📁  Backup folder: \"" + prefs(c).getString("folder", "?") + "\" (change)" : "📁  Choose backup folder";
+    }
+
+    /** Picks another folder (keeps the password); the next backup goes there right away. */
+    static void changeFolder(final MainActivity a) {
+        if (!configured(a)) {
+            fullSetup(a, 0);
+            return;
+        }
+        Toast.makeText(a, "Pick or create a folder for the backup, e.g. \"Documents/Doable\"", Toast.LENGTH_LONG).show();
+        a.openFolder(new MainActivity.UriPicked() {
+            public void onUri(Uri tree) {
+                prefs(a).edit().putString("tree", tree.toString()).putString("folder", folderName(a.getContentResolver(), tree))
+                        .remove("error").commit();
+                start(a, true);
+            }
+        });
+    }
+
     /** Password → fingerprint (to include passwords & locked notes) → folder → first backup right away. */
     private static void fullSetup(final MainActivity a, final int days) {
         LinearLayout box = Util.dialogBox(a);
@@ -225,7 +245,9 @@ final class AutoBackup {
                         if (a.isFinishing()) return;
                         new AlertDialog.Builder(a)
                                 .setTitle(err == null ? "Backup saved ✓" : "Backup failed")
-                                .setMessage(err == null ? status(a) : err)
+                                .setMessage(err == null ? "Saved as \"" + FILE + "\" in the folder \"" + prefs(a).getString("folder", "?")
+                                        + "\".\n\nEvery new backup replaces this file, so backups don't pile up."
+                                        + (prefs(a).contains("note") ? "\n\n⚠ " + prefs(a).getString("note", "") : "") : err)
                                 .setPositiveButton("OK", null)
                                 .show();
                     }

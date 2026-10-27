@@ -8,7 +8,7 @@ import android.content.ComponentName;
 import android.content.Context;
 
 /**
- * Background sync about every 2 hours when online, so reminders and widgets follow changes made on other
+ * Background sync about every 15 minutes when online (Android's shortest interval), so reminders and widgets follow changes made on other
  * devices even when Doable isn't opened.
  */
 public class SyncJob extends JobService {
@@ -18,7 +18,7 @@ public class SyncJob extends JobService {
         JobScheduler js = (JobScheduler) c.getSystemService(Context.JOB_SCHEDULER_SERVICE);
         js.schedule(new JobInfo.Builder(ID, new ComponentName(c, SyncJob.class))
                 .setRequiredNetworkType(JobInfo.NETWORK_TYPE_ANY)
-                .setPeriodic(2 * 3600 * 1000L)
+                .setPeriodic(15 * 60 * 1000L)
                 .setPersisted(true)
                 .build());
     }

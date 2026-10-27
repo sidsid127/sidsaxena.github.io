@@ -1,5 +1,8 @@
 // Local storage for the web app: every row lives in IndexedDB in exactly the shape the sync document uses
 // (see SYNC.md): table → uid → {m, d?, r}. The whole data set is also kept in memory for instant rendering.
+// With device protection on (protect.js) rows, files and the secrets in kv are stored encrypted with the device
+// key, which only Face ID / Touch ID (or the passphrase) can unlock.
+import { sealJson, openJson, sealBytes, openBytes, toB64 } from './crypto.js';
 
 export const REF = (table) => ({ ref: table });
 const DAY = 'day';
@@ -62,6 +65,8 @@ export const colorCss = (int) => (int ? '#' + ((int >>> 0) & 0xFFFFFF).toString(
 // ------------------------------------------------------------------ IndexedDB
 
 let idb;
+let dk = null; // device key (CryptoKey) while protection is on
+export const isProtected = () => !!dk;
 function open() {
   return new Promise((resolve, reject) => {
     const req = indexedDB.open('doable', 1);
@@ -83,14 +88,37 @@ const tx = (store, mode, fn) => new Promise((resolve, reject) => {
   t.onabort = () => reject(t.error);
 });
 
-export const kv = {
+export async function openDb() {
+  if (!idb) idb = await open();
+}
+
+// Secrets in kv (values must be plain JSON); sealed with the device key when protection is on.
+const SECRET_KV = ['syncKey', 'loginsMirror', 'vault', 'googleRefresh'];
+const rawKv = {
   get: (k) => tx('kv', 'readonly', (s) => s.get(k)),
   set: (k, v) => tx('kv', 'readwrite', (s) => { s.put(v, k); }),
+};
+export const kv = {
+  async get(k) {
+    const v = await rawKv.get(k);
+    if (v && v.sealed) return dk ? openJson(dk, v.sealed) : null;
+    return v;
+  },
+  async set(k, v) {
+    return rawKv.set(k, dk && SECRET_KV.includes(k) ? { sealed: await sealJson(dk, v) } : v);
+  },
   del: (k) => tx('kv', 'readwrite', (s) => { s.delete(k); }),
 };
 export const files = {
-  get: (name) => tx('files', 'readonly', (s) => s.get(name)),
-  put: (name, blob) => tx('files', 'readwrite', (s) => { s.put(blob, name); }),
+  async get(name) {
+    const v = await tx('files', 'readonly', (s) => s.get(name));
+    if (v && v.sealed) return dk ? new Blob([await openBytes(dk, v.sealed)], { type: v.type }) : null;
+    return v;
+  },
+  async put(name, blob) {
+    const v = dk ? { sealed: await sealBytes(dk, new Uint8Array(await blob.arrayBuffer())), type: blob.type } : blob;
+    return tx('files', 'readwrite', (s) => { s.put(v, name); });
+  },
   del: (name) => tx('files', 'readwrite', (s) => { s.delete(name); }),
   keys: () => tx('files', 'readonly', (s) => s.getAllKeys()),
 };
@@ -122,15 +150,25 @@ function persist(table, uid) {
   clearTimeout(flushTimer);
   flushTimer = setTimeout(flush, 30);
 }
-export async function flush() {
-  if (!pending.size) return;
-  const batch = pending;
-  pending = new Map();
-  await tx('rows', 'readwrite', (s) => { for (const [k, v] of batch) s.put(v, k); });
+let flushing = Promise.resolve();
+/** Writes pending rows (in order: one write after the other, since sealing takes a moment). */
+export function flush() {
+  const run = flushing.then(async () => {
+    if (!pending.size) return;
+    const batch = pending;
+    pending = new Map();
+    const out = [];
+    for (const [k, v] of batch) out.push([k, dk && v ? { sealed: await sealJson(dk, v) } : v]);
+    await tx('rows', 'readwrite', (s) => { for (const [k, v] of out) s.put(v, k); });
+  });
+  flushing = run.catch(() => {});
+  return run;
 }
 addEventListener('pagehide', () => { flush(); });
 
 let lastM = 0;
+/** The latest stamp given to a change made on this device (sync compares it to see whether there is something new). */
+export const localStamp = () => lastM;
 /** Strictly increasing modification time, so two quick edits never share a timestamp. */
 export function stamp() {
   lastM = Math.max(Date.now(), lastM + 1);
@@ -251,19 +289,43 @@ function migrateOld() {
   localStorage.setItem('doable.migrated', '1');
 }
 
-export async function init() {
-  idb = await open();
+/** Loads everything; with device protection on, `key` is the unlocked device key. */
+export async function init(key = null) {
+  await openDb();
+  dk = key;
   const keys = await tx('rows', 'readonly', (s) => s.getAllKeys());
-  const values = await tx('rows', 'readonly', (s) => s.getAll());
-  keys.forEach((k, i) => {
+  const stored = await tx('rows', 'readonly', (s) => s.getAll());
+  const values = await Promise.all(stored.map((v) => (v && v.sealed ? (dk ? openJson(dk, v.sealed).catch(() => undefined) : undefined) : v)));
+  for (let i = 0; i < keys.length; i++) {
+    const k = keys[i];
     const slash = k.indexOf('/');
     const table = k.slice(0, slash);
-    if (data[table]) data[table].set(k.slice(slash + 1), values[i]);
-  });
+    if (!data[table] || values[i] === undefined) continue;
+    if (dk && !(stored[i] && stored[i].sealed)) pending.set(k, values[i]); // written before protection was finished: seal it now
+    data[table].set(k.slice(slash + 1), values[i]);
+  }
   seed();
   migrateOld();
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
   await flush();
+}
+
+/** Turns on device protection: from now on everything is written sealed with `key`; seals what is stored. */
+export async function protectAll(key) {
+  dk = key;
+  for (const t of TABLES) for (const uid of data[t].keys()) pending.set(t + '/' + uid, data[t].get(uid));
+  await flush();
+  for (const name of await files.keys()) {
+    const v = await tx('files', 'readonly', (s) => s.get(name));
+    if (v instanceof Blob) await files.put(name, v);
+  }
+  for (const k of SECRET_KV) {
+    let v = await rawKv.get(k);
+    if (!v || v.sealed) continue;
+    if (v instanceof Uint8Array) v = toB64(v);
+    if (k === 'syncKey' && v.key) continue; // older CryptoKey form: replaced by protect.js when the passphrase is known
+    await kv.set(k, v);
+  }
 }
 
 /** Removes rows and attachment files that belong to a deleted row (cascade, like Android). */

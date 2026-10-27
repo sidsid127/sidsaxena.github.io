@@ -204,7 +204,7 @@ final class SyncEngine {
 
     private static long idOf(SQLiteDatabase db, String table, String uid) {
         if (uid == null || uid.isEmpty()) return 0;
-        Cursor c = db.rawQuery("SELECT _id FROM " + table + " WHERE uid = ?", new String[]{uid});
+        Cursor c = db.rawQuery("SELECT rowid FROM " + table + " WHERE uid = ?", new String[]{uid});
         try {
             return c.moveToFirst() ? c.getLong(0) : 0;
         } finally {
@@ -266,7 +266,7 @@ final class SyncEngine {
                                     c.close();
                                 }
                             }
-                            db.delete(t.name, "_id = ?", new String[]{String.valueOf(id)});
+                            db.delete(t.name, "rowid = ?", new String[]{String.valueOf(id)});
                         }
                         db.execSQL("INSERT OR REPLACE INTO tombstones (tbl, uid, mtime) VALUES (?, ?, ?)", new Object[]{t.name, uid, m});
                         continue;
@@ -297,7 +297,7 @@ final class SyncEngine {
                     }
                     v.put("mtime", m);
                     if (id != 0) {
-                        db.update(t.name, v, "_id = ?", new String[]{String.valueOf(id)});
+                        db.update(t.name, v, "rowid = ?", new String[]{String.valueOf(id)});
                     } else {
                         v.put("uid", uid);
                         // Rows unique by content (diary day, history name, habit day) replace a local twin.
@@ -382,10 +382,36 @@ final class SyncEngine {
         }
     }
 
+    /**
+     * Cheap check (background thread) whether a round is worth running: something changed on this phone since
+     * the last round, or the document on Drive has a new version. One small Drive request.
+     */
+    static boolean needsRound(Context ctx) throws Exception {
+        if (!enabled(ctx) || syncKey(ctx) == null) return false;
+        SharedPreferences p = prefs(ctx);
+        if (!localMark(ctx).equals(p.getString("mark", ""))) return true;
+        return !new GoogleDrive(ctx).version(DOC).equals(p.getString("version", "-"));
+    }
+
+    /** Changes whenever a synced row or a password is changed on this phone. */
+    private static String localMark(Context ctx) {
+        SQLiteDatabase db = new Db(ctx).getReadableDatabase();
+        StringBuilder sql = new StringBuilder("SELECT max(m) FROM (SELECT max(mtime) AS m FROM tombstones");
+        for (SyncSchema.Table t : SyncSchema.TABLES) sql.append(" UNION ALL SELECT max(mtime) FROM ").append(t.name);
+        Cursor c = db.rawQuery(sql.append(")").toString(), null);
+        try {
+            return (c.moveToFirst() ? c.getLong(0) : 0) + "/" + Vault.edits(ctx);
+        } finally {
+            c.close();
+        }
+    }
+
     private static boolean round(Context ctx) throws Exception {
         SharedPreferences p = prefs(ctx);
+        String mark = localMark(ctx);
         GoogleDrive drive = new GoogleDrive(ctx);
         drive.list();
+        String version = drive.versions.containsKey(DOC) ? drive.versions.get(DOC) : "";
         byte[] bytes = drive.download(DOC);
         byte[] key = syncKey(ctx);
         JSONObject remote = new JSONObject();
@@ -476,9 +502,10 @@ final class SyncEngine {
             JSONObject doc = new JSONObject().put("format", 1).put("updated", System.currentTimeMillis())
                     .put("by", Build.MODEL).put("tables", merged.tables).put("files", fileList);
             byte[] salt = Base64.decode(p.getString("salt", ""), Base64.NO_WRAP);
-            drive.upload(DOC, SyncCrypto.encryptDoc(key, salt, p.getInt("iterations", SyncCrypto.ROUNDS), doc.toString()));
+            version = drive.upload(DOC, SyncCrypto.encryptDoc(key, salt, p.getInt("iterations", SyncCrypto.ROUNDS), doc.toString()));
         }
-        p.edit().putLong("last", System.currentTimeMillis()).putString("error", warnings.isEmpty() ? "" : warnings.get(0)).apply();
+        p.edit().putLong("last", System.currentTimeMillis()).putString("error", warnings.isEmpty() ? "" : warnings.get(0))
+                .putString("mark", mark).putString("version", version).apply();
         if (changed) Reminders.refresh(ctx);
         return changed;
     }

@@ -99,7 +99,7 @@ final class SyncUi {
         final Vault vault = new Vault(a);
         final Db db = new Db(a);
         final boolean notes = SyncEngine.hasUnconvertedLockedNotes(db);
-        final boolean passwords = vault.exists() && !Vault.syncCopyFile(a).exists();
+        final boolean passwords = !Vault.inSync(a);
         if (!notes && !passwords) {
             then.run();
             return;
@@ -150,7 +150,7 @@ final class SyncUi {
                         if (ch) a.syncChanged();
                         if (error == null) {
                             if (interactive) {
-                                if (SyncEngine.syncKey(a) != null && (new Vault(a).exists() && !Vault.syncCopyFile(a).exists()
+                                if (SyncEngine.syncKey(a) != null && (!Vault.inSync(a)
                                         || SyncEngine.hasUnconvertedLockedNotes(new Db(a)))) {
                                     includeSecrets(a, new Runnable() {
                                         public void run() { syncNow(a, false); }

@@ -1,14 +1,13 @@
-// Passwords: logins, bank cards, secure notes, Wi-Fi — encrypted, unlocked with your master password or Face ID.
+// Passwords: logins, bank cards, secure notes, Wi-Fi — encrypted, opened with Face ID / Touch ID.
 import * as V from './vault.js';
 import * as L from './logic.js';
+import * as P from './protect.js';
 import { app } from './ctx.js';
-import { faceIdAvailable } from './lock.js';
 import { h, card, row, empty, sheet, field, input, textarea, select, menu, prompt, confirm, toast, pickFiles } from './ui.js';
 
 const TYPES = ['Login', 'Bank card', 'Secure note', 'Wi-Fi'];
 const ICON = { Login: '🔑', 'Bank card': '💳', 'Secure note': '📝', 'Wi-Fi': '📶' };
 let query = '';
-let hasFace = false;
 
 V.onVaultChange(() => { if (app.current && app.current() && app.current().id === 'vault') app.refresh(); });
 
@@ -36,32 +35,29 @@ async function render(view) {
 const host = (url) => { try { return new URL(/^\w+:/.test(url) ? url : 'https://' + url).hostname.replace(/^www\./, ''); } catch (e) { return url || ''; } };
 
 async function renderLocked(page) {
-  const exists = await V.exists();
-  const m = exists && await V.meta();
-  hasFace = !!(m && m.face);
-  page.appendChild(empty(exists ? '🔒\nYour passwords are encrypted on this device.' : '🔒\nChoose a master password to protect your passwords.\nIt never leaves this device — don\'t forget it.'));
-  if (exists && hasFace) page.appendChild(h('button.btn.block', { type: 'button', onclick: async () => {
-    try { await V.unlockFace(); } catch (e) { toast('Face ID didn\'t work — use your master password'); }
-  } }, 'Unlock with Face ID / Touch ID'));
-  const pw = input('', { type: 'password', placeholder: exists ? 'Master password' : 'New master password (8+ characters)', autocomplete: exists ? 'current-password' : 'new-password' });
-  const pw2 = exists ? null : input('', { type: 'password', placeholder: 'Repeat master password', autocomplete: 'new-password' });
-  const go = async () => {
-    if (exists) {
-      try { await V.unlockPassword(pw.value); } catch (e) { toast('Wrong master password'); pw.value = ''; }
-      return;
-    }
-    if (pw.value.length < 8) { toast('Use at least 8 characters'); return; }
-    if (pw.value !== pw2.value) { toast('The passwords don\'t match'); return; }
-    await V.create(pw.value);
-    if (await faceIdAvailable() && await confirm('Unlock with Face ID / Touch ID too?', 'You can always use the master password.', 'Use Face ID', false)) {
-      try { await V.enableFace(pw.value); toast('Face ID unlock on'); } catch (e) { toast('Face ID unlock isn\'t available on this device'); }
-    }
+  if (!P.isOn()) { page.replaceWith(P.setupCard('your passwords')); return; }
+  if (await V.needsMasterPassword()) {
+    // Vault from an older version: its master password one last time, then Face ID / Touch ID only.
+    page.appendChild(empty('🔑\nOne last time: enter your old master password.\nFrom now on Passwords opens with Touch ID / Face ID.'));
+    const pw = input('', { type: 'password', placeholder: 'Master password', autocomplete: 'current-password' });
+    const go = async () => {
+      try { await V.convertMasterPassword(pw.value); toast('Done — next time it\'s just Touch ID / Face ID'); } catch (e) { toast('Wrong master password'); pw.value = ''; }
+    };
+    pw.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });
+    page.append(card(h('div', { style: { padding: '12px' } }, pw, h('div', { style: { height: '8px' } }),
+      h('button.btn.primary.block', { type: 'button', onclick: go }, 'Unlock'))));
+    setTimeout(() => pw.focus(), 100);
+    return;
+  }
+  const open = async () => {
+    if (!await P.verify()) return;
+    try { await V.openProtected(); } catch (e) { toast('Couldn\'t open Passwords: ' + e.message); }
   };
-  pw.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });
-  page.append(card(h('div', { style: { padding: '12px' } }, pw, pw2 ? h('div', { style: { height: '8px' } }) : null, pw2,
-    h('button.btn.primary.block', { type: 'button', onclick: go }, exists ? 'Unlock' : 'Create vault'))));
-  if (!hasFace) setTimeout(() => pw.focus(), 100);
+  page.appendChild(empty('🔒\nYour passwords are encrypted on this device.'));
+  page.appendChild(h('button.btn.primary.block', { type: 'button', onclick: open }, P.usesFace() ? 'Unlock with Touch ID / Face ID' : 'Unlock'));
+  if (!autoTried) { autoTried = true; setTimeout(open, 200); } // ask right away once each time Passwords is opened
 }
+let autoTried = false;
 
 function copy(label, value) {
   if (!value) return;
@@ -154,22 +150,10 @@ export default {
   icon: 'key',
   tables: [],
   render,
-  hide() { V.lock(); query = ''; },
+  hide() { V.lock(); query = ''; autoTried = false; },
   menu: () => (V.isOpen() ? [
     { label: '🔒 Lock now', action: () => V.lock() },
     { label: 'Import from CSV (Chrome, Bitwarden…)', action: importCsv },
-    { label: 'Change master password', action: async () => {
-      const o = await prompt('Current master password', '', { type: 'password' });
-      if (!o) return;
-      const n = await prompt('New master password (8+ characters)', '', { type: 'password' });
-      if (!n || n.length < 8) { toast('Too short'); return; }
-      try { await V.changePassword(o, n); toast('Master password changed'); } catch (e) { toast('Current password is wrong'); }
-    } },
-    { label: 'Unlock with Face ID / Touch ID…', action: async () => {
-      const p = await prompt('Master password', '', { type: 'password', message: 'Needed once to set up Face ID unlock.' });
-      if (!p) return;
-      try { await V.enableFace(p); toast('Face ID unlock on'); } catch (e) { toast(e.message === 'prf-unsupported' ? 'Not supported on this device' : 'Didn\'t work: ' + e.message); }
-    } },
   ] : []),
 };
 

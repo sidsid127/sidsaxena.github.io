@@ -174,6 +174,7 @@ public class MainActivity extends Activity {
             }
         }).start();
         setupShortcuts();
+        if (SyncEngine.enabled(this)) SyncJob.schedule(this); // replaces the slower schedule of older versions
         String restored = prefs.getString("restoreMsg", null);
         if (restored != null) {
             prefs.edit().remove("restoreMsg").apply();
@@ -340,15 +341,38 @@ public class MainActivity extends Activity {
         out.putBoolean("locked", locked);
     }
 
+    // While Doable is on screen it checks every few seconds whether this phone or Drive has something new
+    // (one small request), so changes from other devices show up almost right away.
+    private final android.os.Handler syncHandler = new android.os.Handler();
+    private final java.util.concurrent.atomic.AtomicBoolean checking = new java.util.concurrent.atomic.AtomicBoolean();
+    private final Runnable syncTick = new Runnable() {
+        public void run() {
+            syncHandler.postDelayed(this, 10000);
+            if (!SyncEngine.enabled(MainActivity.this) || SyncEngine.syncKey(MainActivity.this) == null || !checking.compareAndSet(false, true)) return;
+            final Context app = getApplicationContext();
+            new Thread(new Runnable() {
+                public void run() {
+                    boolean need;
+                    try {
+                        need = SyncEngine.needsRound(app);
+                    } catch (Exception e) {
+                        need = false; // offline or signed out: the status shows it after the next full round
+                    }
+                    checking.set(false);
+                    if (need) runOnUiThread(new Runnable() {
+                        public void run() { if (!isFinishing()) SyncUi.syncNow(MainActivity.this, false); }
+                    });
+                }
+            }).start();
+        }
+    };
+
     @Override
     protected void onStart() {
         super.onStart();
-        boolean returning = leavingForExternal;
         leavingForExternal = false;
-        if (!returning && SyncEngine.enabled(this) && SyncEngine.syncKey(this) != null
-                && System.currentTimeMillis() - SyncEngine.prefs(this).getLong("last", 0) > 60000) {
-            SyncUi.syncNow(this, false);
-        }
+        syncHandler.removeCallbacks(syncTick);
+        syncHandler.post(syncTick);
         showLockScreen(locked);
         if (locked && !authInProgress) {
             lockView.post(new Runnable() {
@@ -366,6 +390,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onStop() {
         super.onStop();
+        syncHandler.removeCallbacks(syncTick);
         if (authInProgress || isChangingConfigurations()) return;
         current.onStop();
         AutoBackup.runIfDue(this);

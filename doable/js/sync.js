@@ -1,5 +1,6 @@
 // Sync with your own Google Drive (hidden app folder), end-to-end encrypted with your sync passphrase.
-// Format and merge rules: SYNC.md. Google sign-in uses the browser token flow (no server; tokens last 1 hour).
+// Format and merge rules: SYNC.md. Google sign-in: code flow with a renewable token through api/token (the site's
+// server keeps the client secret); without that server part it falls back to the browser token flow (1 hour).
 import * as S from './store.js';
 import * as C from './crypto.js';
 import * as V from './vault.js';
@@ -28,13 +29,18 @@ let fileIds = new Map();     // Drive file name → id (from the last listing)
 let running = null;
 let dirty = false;
 let timer = 0;
+let synced = { stamp: -1, version: null }; // local edit stamp and Drive version after the last good round
+let docVersion = null;                       // Drive version of the document from the last listing
 
 V.setSyncKey(async () => syncKey || (syncKey = await loadKey()));
 app.fetchFile = (name) => fetchFile(name);
 
-async function loadKey() {
+/** The sync key: stored raw (sealed when device protection is on), or as a CryptoKey by older versions. */
+export async function loadKey() {
   const k = await S.kv.get('syncKey');
-  return k ? k.key : null;
+  if (!k) return null;
+  if (k.key) return k.key;
+  return crypto.subtle.importKey('raw', C.fromB64(k.raw), 'AES-GCM', false, ['encrypt', 'decrypt']);
 }
 
 export function statusLine() {
@@ -50,33 +56,95 @@ function token() {
   const t = ls.get('doable.token');
   return t && t.token && t.exp - 60000 > Date.now() ? t.token : null;
 }
+const saveToken = (j) => ls.set('doable.token', { token: j.access_token, exp: Date.now() + (Number(j.expires_in) || 3600) * 1000 });
 
-function takeAuthResult(data) {
+/** A valid access token, renewed through api/token when this device has a renewal token; null = sign in needed. */
+let renewing = null;
+async function getToken() {
+  const t = token();
+  if (t) return t;
+  if (!renewing) {
+    renewing = (async () => {
+      const refresh = await S.kv.get('googleRefresh');
+      if (!refresh) return null;
+      try {
+        const r = await fetch('api/token', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ refresh_token: refresh }) });
+        const j = await r.json();
+        if (j.access_token) { saveToken(j); return j.access_token; }
+        if (j.error === 'invalid_grant') await S.kv.del('googleRefresh'); // revoked: sign in again
+      } catch (e) { /* offline */ }
+      return null;
+    })().finally(() => { renewing = null; });
+  }
+  return renewing;
+}
+
+// Whether the site's server part can keep this device signed in (asked once per start; sign-in has to open its
+// window right away on a tap, so this and the PKCE pair are prepared ahead).
+let codeFlow = false;
+let pkce = null;
+async function prepareSignIn() {
+  try { codeFlow = (await (await fetch('api/token', { cache: 'no-store' })).json()).configured === true; } catch (e) { codeFlow = false; }
+  if (!codeFlow) return;
+  const verifier = C.toB64(C.randomBytes(32)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  const hash = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier)));
+  pkce = { verifier, challenge: C.toB64(hash).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '') };
+}
+
+const redirectUri = () => new URL('auth.html', location.href).href;
+let handledState = null;
+async function takeAuthResult(data) {
   if (!data) return false;
   ls.del('doable.authResult');
   const expected = localStorage.getItem('doable.authState');
-  if (data.error || !data.token || (expected && data.state !== expected)) {
+  if (data.state && data.state === handledState) return false; // same answer by message and by storage
+  handledState = data.state;
+  if (data.error || !(data.token || data.code) || (expected && data.state !== expected)) {
     if (data.error && data.error !== 'access_denied') toast('Google sign-in failed: ' + data.error);
     return false;
   }
-  ls.set('doable.token', { token: data.token, exp: data.exp });
   localStorage.removeItem('doable.authState');
+  if (data.code) {
+    try {
+      const r = await fetch('api/token', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: data.code, code_verifier: localStorage.getItem('doable.pkce') || '', redirect_uri: redirectUri() }) });
+      const j = await r.json();
+      if (!j.access_token) { toast('Google sign-in failed: ' + (j.error_description || j.error || r.status)); return false; }
+      if (j.refresh_token) await S.kv.set('googleRefresh', j.refresh_token);
+      saveToken(j);
+    } catch (e) {
+      toast('Google sign-in failed — are you online?');
+      return false;
+    } finally {
+      localStorage.removeItem('doable.pkce');
+      prepareSignIn();
+    }
+    return true;
+  }
+  ls.set('doable.token', { token: data.token, exp: data.exp });
   return true;
 }
 addEventListener('message', (e) => {
-  if (e.origin === location.origin && e.data && e.data.doableAuth && takeAuthResult(e.data.doableAuth)) afterSignIn();
+  if (e.origin === location.origin && e.data && e.data.doableAuth) takeAuthResult(e.data.doableAuth).then((ok) => ok && afterSignIn());
 });
 addEventListener('storage', (e) => {
-  if (e.key === 'doable.authResult' && e.newValue && takeAuthResult(ls.get('doable.authResult'))) afterSignIn();
+  if (e.key === 'doable.authResult' && e.newValue) takeAuthResult(ls.get('doable.authResult')).then((ok) => ok && afterSignIn());
 });
 
 function authUrl() {
   const state = C.toB64(C.randomBytes(12)).replace(/[^a-z0-9]/gi, '');
   localStorage.setItem('doable.authState', state);
-  const p = new URLSearchParams({
-    client_id: clientId(), redirect_uri: new URL('auth.html', location.href).href, response_type: 'token', scope: SCOPE,
-    include_granted_scopes: 'true', state,
-  });
+  const p = new URLSearchParams({ client_id: clientId(), redirect_uri: redirectUri(), scope: SCOPE, include_granted_scopes: 'true', state });
+  if (codeFlow && pkce) {
+    localStorage.setItem('doable.pkce', pkce.verifier);
+    p.set('response_type', 'code');
+    p.set('code_challenge', pkce.challenge);
+    p.set('code_challenge_method', 'S256');
+    p.set('access_type', 'offline');
+    p.set('prompt', 'consent');
+  } else {
+    p.set('response_type', 'token');
+  }
   if (cfg().email) p.set('login_hint', cfg().email);
   return 'https://accounts.google.com/o/oauth2/v2/auth?' + p;
 }
@@ -92,7 +160,7 @@ export function signIn() {
 let pendingAfterSignIn = null;
 async function afterSignIn() {
   try {
-    const r = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', { headers: { Authorization: 'Bearer ' + token() } });
+    const r = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', { headers: { Authorization: 'Bearer ' + await getToken() } });
     if (r.ok) { const u = await r.json(); setCfg({ email: u.email || cfg().email }); }
   } catch (e) { /* offline */ }
   if (pendingAfterSignIn) { const f = pendingAfterSignIn; pendingAfterSignIn = null; f(); } else if (cfg().enabled) syncNow(false);
@@ -106,7 +174,7 @@ function notAvailable() {
 
 class AuthError extends Error {}
 async function drive(path, opts = {}, base = API) {
-  const t = token();
+  const t = await getToken();
   if (!t) throw new AuthError('Sign in to Google again');
   const r = await fetch(base + path, { ...opts, headers: { Authorization: 'Bearer ' + t, ...(opts.headers || {}) } });
   if (r.status === 401) { ls.del('doable.token'); throw new AuthError('Sign in to Google again'); }
@@ -115,12 +183,16 @@ async function drive(path, opts = {}, base = API) {
 }
 async function listFiles() {
   fileIds = new Map();
+  docVersion = '';
   let pageToken = '';
   do {
-    const q = new URLSearchParams({ spaces: 'appDataFolder', fields: 'nextPageToken,files(id,name)', pageSize: '1000' });
+    const q = new URLSearchParams({ spaces: 'appDataFolder', fields: 'nextPageToken,files(id,name,version)', pageSize: '1000' });
     if (pageToken) q.set('pageToken', pageToken);
     const j = await (await drive('/files?' + q)).json();
-    for (const f of j.files || []) fileIds.set(f.name, f.id);
+    for (const f of j.files || []) {
+      fileIds.set(f.name, f.id);
+      if (f.name === DOC) docVersion = f.version;
+    }
     pageToken = j.nextPageToken || '';
   } while (pageToken);
 }
@@ -129,18 +201,26 @@ async function download_(name) {
   if (!id) return null;
   return new Uint8Array(await (await drive('/files/' + id + '?alt=media')).arrayBuffer());
 }
+/** Drive version of the document — one small request to see whether another device changed it. */
+async function remoteVersion() {
+  const q = new URLSearchParams({ spaces: 'appDataFolder', q: `name = '${DOC}'`, fields: 'files(version)' });
+  const j = await (await drive('/files?' + q)).json();
+  return j.files && j.files.length ? j.files[0].version : '';
+}
+/** Creates or replaces a file; returns its new Drive version. */
 async function upload(name, bytes) {
   const id = fileIds.get(name);
   if (id) {
-    await drive('/files/' + id + '?uploadType=media', { method: 'PATCH', body: bytes, headers: { 'Content-Type': 'application/octet-stream' } }, UPLOAD);
-    return;
+    const r = await drive('/files/' + id + '?uploadType=media&fields=version', { method: 'PATCH', body: bytes, headers: { 'Content-Type': 'application/octet-stream' } }, UPLOAD);
+    return (await r.json()).version;
   }
   const boundary = 'doable' + Math.random().toString(36).slice(2);
   const meta = JSON.stringify({ name, parents: ['appDataFolder'] });
   const body = new Blob([`--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${meta}\r\n--${boundary}\r\nContent-Type: application/octet-stream\r\n\r\n`,
     bytes, `\r\n--${boundary}--`]);
-  const j = await (await drive('/files?uploadType=multipart&fields=id', { method: 'POST', body, headers: { 'Content-Type': 'multipart/related; boundary=' + boundary } }, UPLOAD)).json();
+  const j = await (await drive('/files?uploadType=multipart&fields=id,version', { method: 'POST', body, headers: { 'Content-Type': 'multipart/related; boundary=' + boundary } }, UPLOAD)).json();
   fileIds.set(name, j.id);
+  return j.version;
 }
 async function remove(name) {
   const id = fileIds.get(name);
@@ -189,19 +269,28 @@ const canon = (doc) => JSON.stringify({ t: doc.tables, f: [...doc.files].sort() 
 export async function syncNow(fromUser) {
   if (!cfg().enabled) { if (fromUser) settingsSheet(); return; }
   if (running) { dirty = true; return running; }
-  if (!token()) {
-    setCfg({ error: 'Tap "Sync now" to sign in to Google again' });
-    if (fromUser) { pendingAfterSignIn = () => syncNow(true); signIn(); }
-    return;
+  if (!token() && !fromUser) {
+    if (!await getToken()) { setCfg({ error: 'Tap "Sync now" to sign in to Google again' }); return; }
+  } else if (!token()) {
+    // From a tap: the sign-in window must open right away; a renewal only when it can't.
+    if (!codeFlow || !await S.kv.get('googleRefresh') || !await getToken()) {
+      setCfg({ error: 'Tap "Sync now" to sign in to Google again' });
+      pendingAfterSignIn = () => syncNow(true);
+      signIn();
+      return;
+    }
   }
-  running = round(fromUser).finally(() => { running = null; if (dirty) { dirty = false; schedule(5000); } });
+  if (running) { dirty = true; return running; }
+  running = round(fromUser).finally(() => { running = null; if (dirty) { dirty = false; schedule(1000); } });
   return running;
 }
 
 async function round(fromUser) {
   try {
+    const stamp = S.localStamp();
     await S.flush();
     await listFiles();
+    let version = docVersion;
     const bytes = await download_(DOC);
     let remote = { tables: {}, files: [] };
     let header = null;
@@ -214,7 +303,7 @@ async function round(fromUser) {
         await S.kv.del('syncKey');
         if (!await askPassphrase(header)) { setCfg({ error: 'Enter your sync passphrase (Sync & backup)' }); return; }
       }
-      syncKey = (await S.kv.get('syncKey')).key;
+      syncKey = await loadKey();
       try {
         remote = JSON.parse(await C.decryptDoc(syncKey, bytes));
       } catch (e) {
@@ -225,7 +314,7 @@ async function round(fromUser) {
     } else if (!await S.kv.get('syncKey')) {
       if (!await askPassphrase(null)) { setCfg({ error: 'Choose a sync passphrase (Sync & backup)' }); return; }
     }
-    syncKey = (await S.kv.get('syncKey')).key;
+    syncKey = await loadKey();
     const { salt, iterations } = await S.kv.get('syncKey');
 
     const remoteTables = remote.tables || {};
@@ -255,9 +344,10 @@ async function round(fromUser) {
 
     const doc = { format: 1, updated: Date.now(), by: deviceName(), tables, files: [...files] };
     if (!bytes || canon(doc) !== canon({ tables: remoteTables, files: remote.files || [] })) {
-      await upload(DOC, await C.encryptDoc(syncKey, C.fromB64(salt), iterations, JSON.stringify(doc)));
+      version = await upload(DOC, await C.encryptDoc(syncKey, C.fromB64(salt), iterations, JSON.stringify(doc)));
     }
     await S.flush();
+    synced = { stamp, version };
     setCfg({ last: Date.now(), error: '' });
     if (fromUser) toast('Synced ✓');
   } catch (e) {
@@ -288,9 +378,9 @@ function askPassphrase(header) {
         toast('One moment…');
         const salt = header ? header.salt : C.randomBytes(16);
         const iterations = header ? header.iterations : C.SYNC_ROUNDS;
-        const key = await C.deriveKey(pw, salt, iterations);
-        await S.kv.set('syncKey', { key, salt: C.toB64(salt), iterations });
-        syncKey = key;
+        const raw = new Uint8Array(await crypto.subtle.exportKey('raw', await C.deriveKey(pw, salt, iterations, true)));
+        await S.kv.set('syncKey', { raw: C.toB64(raw), salt: C.toB64(salt), iterations });
+        syncKey = await loadKey();
         ok = true;
       } }],
       onClose: () => resolve(ok),
@@ -301,7 +391,7 @@ function askPassphrase(header) {
 /** Downloads one attachment from Drive when this device doesn't have it yet. */
 const fetching = new Map();
 async function fetchFile(name) {
-  if (!cfg().enabled || !token()) return null;
+  if (!cfg().enabled) return null;
   if (fetching.has(name)) return fetching.get(name);
   const p = (async () => {
     try {
@@ -324,22 +414,33 @@ async function fetchFile(name) {
 
 function schedule(ms) {
   clearTimeout(timer);
-  timer = setTimeout(() => { if (token()) syncNow(false); }, ms);
+  timer = setTimeout(() => syncNow(false), ms);
 }
 export function localChanged() {
-  if (cfg().enabled && !running) schedule(8000); // (changes written by a running sync don't need another round)
+  if (cfg().enabled && !running) schedule(2000); // (changes written by a running sync don't need another round)
 }
 export function onHidden() {
-  if (cfg().enabled && token()) syncNow(false);
+  if (cfg().enabled) syncNow(false);
 }
 export function onVisible() {
-  if (cfg().enabled && token()) schedule(500);
-  else if (cfg().enabled) setCfg({ error: 'Tap "Sync now" to sign in to Google again' });
+  if (cfg().enabled) schedule(300);
 }
-export function start() {
-  if (takeAuthResult(ls.get('doable.authResult'))) afterSignIn(); // came back from a full-page sign-in
-  else if (cfg().enabled && token()) schedule(1000);
-  setInterval(() => { if (cfg().enabled && !document.hidden && token()) syncNow(false); }, 180000);
+
+/** Every few seconds while Doable is on screen: a round only if this device or Drive has something new. */
+async function check() {
+  if (!cfg().enabled || document.hidden || running || !navigator.onLine) return;
+  if (S.localStamp() > synced.stamp) { syncNow(false); return; }
+  try {
+    if (await remoteVersion() !== synced.version) syncNow(false);
+  } catch (e) { /* signed out or offline: the next full round reports it */ }
+}
+
+export async function start() {
+  await prepareSignIn();
+  const back = ls.get('doable.authResult'); // came back from a full-page sign-in
+  if (back && await takeAuthResult(back)) afterSignIn();
+  else if (cfg().enabled) schedule(500);
+  setInterval(check, 10000);
 }
 
 // ------------------------------------------------------------------ settings
@@ -354,14 +455,14 @@ export function settingsSheet() {
     title: 'Sync & backup',
     wide: true,
     body: [body, card(
-      c.enabled ? row({ icon: '🔄', title: 'Sync now', sub: token() ? 'Signed in' + (c.email ? ' as ' + c.email : '') : 'Will ask you to sign in to Google',
+      c.enabled ? row({ icon: '🔄', title: 'Sync now', sub: c.email ? 'Signed in as ' + c.email : 'Will ask you to sign in to Google',
         onclick: () => { s.close(); syncNow(true); } }) : row({ icon: '☁️', title: 'Turn on sync', sub: 'Sign in with Google, then choose a passphrase',
         onclick: () => { s.close(); enable(); } }),
       c.enabled ? row({ icon: '🔑', title: 'Re-enter sync passphrase', sub: 'If you changed it on another device', onclick: async () => { await S.kv.del('syncKey'); syncKey = null; s.close(); syncNow(true); } }) : null,
       row({ icon: '🏷', title: 'This device\'s name', sub: deviceName(), onclick: async () => { const n = await prompt('Device name', deviceName()); if (n) localStorage.setItem('doable.device', n); s.close(); } }),
       c.enabled ? row({ icon: '⏏️', title: 'Turn off sync on this device', sub: 'Your data stays here and on Drive', onclick: async () => {
         if (!await confirm('Turn off sync?', 'This device keeps its data; other devices keep syncing.', 'Turn off')) return;
-        ls.del('doable.token'); await S.kv.del('syncKey'); syncKey = null; setCfg({ enabled: false, error: '' }); s.close();
+        ls.del('doable.token'); await S.kv.del('googleRefresh'); await S.kv.del('syncKey'); syncKey = null; setCfg({ enabled: false, error: '' }); s.close();
       } }) : null,
     ), h('div.section', 'Backup file'), card(
       row({ icon: '💾', title: 'Download a backup file', sub: 'Everything in one file, encrypted with a password you choose', onclick: () => { s.close(); backup(); } }),

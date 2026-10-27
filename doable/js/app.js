@@ -4,6 +4,7 @@ import { h, $, clear, icon, menu, sheet, toast, confirm, prompt, alert, row, hea
 import { app } from './ctx.js';
 import * as Sync from './sync.js';
 import * as Lock from './lock.js';
+import * as Protect from './protect.js';
 import Today from './m-today.js';
 import Tasks from './m-tasks.js';
 import Notes from './m-notes.js';
@@ -132,11 +133,15 @@ function settingsMenu() {
       ['system', 'Same as device'], ['light', 'Light'], ['dark', 'Dark']].map(([v, l]) => ({
       label: l, checked: S.settings.theme === v, action: () => { S.settings.theme = v; S.saveSettings(); applyTheme(); },
     }))) },
-    { label: S.settings.lock ? 'App lock: on (PIN / Face ID)' : 'App lock: off', action: () => (S.settings.lock ? Lock.disable() : Lock.enable()) },
+    Protect.isOn()
+      ? { label: '🔐 Protected: opens with ' + (Protect.usesFace() ? 'Touch ID / Face ID' : 'your passphrase'), action: () => alert('Protection is on',
+        'Everything Doable keeps on this device is encrypted. It opens with ' + (Protect.usesFace() ? 'Touch ID / Face ID; your passphrase is the backup way in.' : 'your passphrase.')) }
+      : { label: '🔐 Protect with Touch ID / Face ID…', action: async () => { if (await Protect.setup()) app.refresh(); } },
+    Protect.isOn() ? null : { label: S.settings.lock ? 'App lock: on (PIN / Face ID)' : 'App lock: off', action: () => (S.settings.lock ? Lock.disable() : Lock.enable()) },
     { label: 'Notifications while Doable is open', action: askNotifications },
     { label: 'Install on this device…', action: installHelp },
     { label: 'About Doable', action: () => alert('Doable', 'Your data is stored on this device. With sync turned on, it is '
-      + 'end-to-end encrypted with your sync passphrase before it goes to your own Google Drive.\n\nVersion 6.0 (web)') },
+      + 'end-to-end encrypted with your sync passphrase before it goes to your own Google Drive.\n\nVersion 6.2 (web)') },
   ]);
 }
 
@@ -218,7 +223,7 @@ function remindersDue(from, to) {
 // ------------------------------------------------------------------ start
 
 async function start() {
-  await S.init();
+  await S.init(await Protect.unlockAtStart());
   applyTheme();
   clear($('#search-btn')).appendChild(icon('search'));
   clear($('#more-btn')).appendChild(icon('more'));

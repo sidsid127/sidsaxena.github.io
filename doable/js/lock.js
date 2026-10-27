@@ -2,6 +2,7 @@
 import * as S from './store.js';
 import { $, h, sheet, toast, confirm } from './ui.js';
 import { toB64, fromB64 } from './crypto.js';
+import { app } from './ctx.js';
 
 const LOCK_AFTER_MS = 60000;
 let locked = false;
@@ -135,6 +136,7 @@ async function face() {
 }
 
 export function init() {
+  if (app.protectOn && app.protectOn()) return; // device protection has its own Face ID / Touch ID lock
   const pad = $('#keypad');
   for (const k of ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'ok', '0', 'del']) {
     pad.appendChild(h('button' + (k === 'ok' || k === 'del' ? '.small' : ''), { type: 'button', 'data-k': k }, k === 'del' ? 'Delete' : k === 'ok' ? 'OK' : k));
@@ -164,6 +166,7 @@ export function init() {
 
 /** Asks for Face ID / PIN before showing something private (locked notes, wallet). True if confirmed. */
 export async function verifyUser(reason) {
+  if (app.protectOn && app.protectOn()) return app.protectVerify();
   const lock = S.settings.lock;
   if (!lock) return true;
   if (lock.cred) {

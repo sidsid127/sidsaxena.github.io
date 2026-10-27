@@ -203,6 +203,7 @@ final class GoogleDrive {
 
     private final Context c;
     final Map<String, String> ids = new HashMap<String, String>(); // file name → Drive id
+    final Map<String, String> versions = new HashMap<String, String>(); // file name → Drive version (grows with each change)
 
     GoogleDrive(Context c) {
         this.c = c;
@@ -230,15 +231,27 @@ final class GoogleDrive {
 
     void list() throws Exception {
         ids.clear();
+        versions.clear();
         String page = "";
         do {
-            HttpURLConnection h = open(API + "/files?spaces=appDataFolder&pageSize=1000&fields=" + enc("nextPageToken,files(id,name)")
+            HttpURLConnection h = open(API + "/files?spaces=appDataFolder&pageSize=1000&fields=" + enc("nextPageToken,files(id,name,version)")
                     + (page.isEmpty() ? "" : "&pageToken=" + enc(page)), "GET");
             JSONObject j = new JSONObject(new String(call(h), "UTF-8"));
             JSONArray files = j.optJSONArray("files");
-            for (int i = 0; files != null && i < files.length(); i++) ids.put(files.getJSONObject(i).getString("name"), files.getJSONObject(i).getString("id"));
+            for (int i = 0; files != null && i < files.length(); i++) {
+                JSONObject f = files.getJSONObject(i);
+                ids.put(f.getString("name"), f.getString("id"));
+                versions.put(f.getString("name"), f.optString("version"));
+            }
             page = j.optString("nextPageToken", "");
         } while (!page.isEmpty());
+    }
+
+    /** Drive version of one file ("" if it doesn't exist) — one small request, to see whether anything changed. */
+    String version(String name) throws Exception {
+        HttpURLConnection h = open(API + "/files?spaces=appDataFolder&q=" + enc("name = '" + name + "'") + "&fields=" + enc("files(version)"), "GET");
+        JSONArray files = new JSONObject(new String(call(h), "UTF-8")).optJSONArray("files");
+        return files == null || files.length() == 0 ? "" : files.getJSONObject(0).optString("version");
     }
 
     byte[] download(String name) throws Exception {
@@ -247,10 +260,11 @@ final class GoogleDrive {
         return call(open(API + "/files/" + id + "?alt=media", "GET"));
     }
 
-    void upload(String name, byte[] data) throws Exception {
+    /** Creates or replaces a file; returns its new Drive version. */
+    String upload(String name, byte[] data) throws Exception {
         String id = ids.get(name);
         if (id != null) {
-            HttpURLConnection h = open(UPLOAD + "/files/" + id + "?uploadType=media", "POST");
+            HttpURLConnection h = open(UPLOAD + "/files/" + id + "?uploadType=media&fields=version", "POST");
             h.setRequestProperty("X-HTTP-Method-Override", "PATCH"); // HttpURLConnection has no PATCH
             h.setRequestProperty("Content-Type", "application/octet-stream");
             h.setDoOutput(true);
@@ -258,15 +272,16 @@ final class GoogleDrive {
             OutputStream o = h.getOutputStream();
             o.write(data);
             o.close();
-            call(h);
-            return;
+            String v = new JSONObject(new String(call(h), "UTF-8")).optString("version");
+            versions.put(name, v);
+            return v;
         }
         String boundary = "doable" + System.nanoTime();
         byte[] head = ("--" + boundary + "\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n"
                 + new JSONObject().put("name", name).put("parents", new JSONArray().put("appDataFolder")) + "\r\n--" + boundary
                 + "\r\nContent-Type: application/octet-stream\r\n\r\n").getBytes("UTF-8");
         byte[] tail = ("\r\n--" + boundary + "--").getBytes("UTF-8");
-        HttpURLConnection h = open(UPLOAD + "/files?uploadType=multipart&fields=id", "POST");
+        HttpURLConnection h = open(UPLOAD + "/files?uploadType=multipart&fields=id,version", "POST");
         h.setRequestProperty("Content-Type", "multipart/related; boundary=" + boundary);
         h.setDoOutput(true);
         h.setFixedLengthStreamingMode(head.length + data.length + tail.length);
@@ -275,7 +290,10 @@ final class GoogleDrive {
         o.write(data);
         o.write(tail);
         o.close();
-        ids.put(name, new JSONObject(new String(call(h), "UTF-8")).getString("id"));
+        JSONObject j = new JSONObject(new String(call(h), "UTF-8"));
+        ids.put(name, j.getString("id"));
+        versions.put(name, j.optString("version"));
+        return j.optString("version");
     }
 
     void delete(String name) throws Exception {

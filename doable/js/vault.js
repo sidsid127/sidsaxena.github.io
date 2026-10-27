@@ -1,10 +1,10 @@
-// Password vault storage. Logins are encrypted row by row with a random data key (AES-256-GCM); the data key
-// is kept wrapped by your master password (PBKDF2, 600,000 rounds) and optionally by Face ID / Touch ID
-// (passkey PRF). With sync on, a copy of the logins sealed with the sync key lets sync run while the vault
-// is locked (the synced document itself is end-to-end encrypted).
+// Password vault storage. Logins are encrypted row by row with a random data key (AES-256-GCM). The data key
+// sits in the device's protected storage (protect.js: sealed with the device key that only Face ID / Touch ID
+// or the passphrase unlocks), and Passwords asks for Face ID / Touch ID each time it opens. Vaults from older
+// versions were wrapped by a master password; that is asked once to move them over. With sync on, a copy of the
+// logins sealed with the sync key lets sync run while the vault is closed.
 import * as S from './store.js';
 import { toB64, fromB64, sealJson, openJson } from './crypto.js';
-import { createPasskey, usePasskey } from './lock.js';
 
 const ROUNDS = 600000;
 const enc = new TextEncoder();
@@ -15,10 +15,6 @@ export const onVaultChange = (fn) => listeners.add(fn);
 const changed = () => listeners.forEach((fn) => fn());
 
 async function aes(raw) { return crypto.subtle.importKey('raw', raw, 'AES-GCM', false, ['encrypt', 'decrypt']); }
-async function seal(key, bytes) {
-  const iv = crypto.getRandomValues(new Uint8Array(12));
-  return { iv: toB64(iv), ct: toB64(new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, bytes))) };
-}
 async function unseal(key, box) {
   return new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: fromB64(box.iv) }, key, fromB64(box.ct)));
 }
@@ -27,21 +23,22 @@ async function pwKey(password, salt) {
   return crypto.subtle.deriveKey({ name: 'PBKDF2', salt: fromB64(salt), iterations: ROUNDS, hash: 'SHA-256' }, base,
     { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
 }
-async function prfKey(secret) {
-  const base = await crypto.subtle.importKey('raw', secret, 'HKDF', false, ['deriveKey']);
-  return crypto.subtle.deriveKey({ name: 'HKDF', hash: 'SHA-256', salt: new Uint8Array(32), info: enc.encode('doable-vault') }, base,
-    { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
-}
 
 export const meta = () => S.kv.get('vault');
 export async function exists() { return !!(await meta()); }
 export const isOpen = () => !!dataKey;
+/** An older vault that still needs its master password once. */
+export async function needsMasterPassword() { const m = await meta(); return !!(m && !m.raw); }
 
-export async function create(password) {
-  const raw = crypto.getRandomValues(new Uint8Array(32));
-  const salt = toB64(crypto.getRandomValues(new Uint8Array(16)));
-  await S.kv.set('vault', { pw: { salt, ...(await seal(await pwKey(password, salt), raw)) }, face: null });
-  await openWith(raw);
+/** Opens (or creates) the vault with the key kept in protected storage. Only call after Face ID / Touch ID. */
+export async function openProtected() {
+  if (!S.isProtected()) throw new Error('not protected');
+  let m = await meta();
+  if (!m) {
+    m = { raw: toB64(crypto.getRandomValues(new Uint8Array(32))) };
+    await S.kv.set('vault', m);
+  }
+  await openWith(fromB64(m.raw));
 }
 
 async function openWith(raw) {
@@ -55,41 +52,12 @@ async function openWith(raw) {
   changed();
 }
 
-export async function unlockPassword(password) {
+/** Last use of an old master password: opens the vault and keeps its key in protected storage from now on. */
+export async function convertMasterPassword(password) {
   const m = await meta();
   const raw = await unseal(await pwKey(password, m.pw.salt), m.pw); // throws on a wrong password
+  await S.kv.set('vault', { raw: toB64(raw) });
   await openWith(raw);
-}
-
-async function prfSecret(credId, salt) {
-  const res = await usePasskey(credId, { prf: { eval: { first: fromB64(salt) } } });
-  const out = res.getClientExtensionResults().prf;
-  if (!out || !out.results || !out.results.first) throw new Error('prf-unsupported');
-  return out.results.first;
-}
-export async function unlockFace() {
-  const m = await meta();
-  const raw = await unseal(await prfKey(await prfSecret(m.face.cred, m.face.salt)), m.face);
-  await openWith(raw);
-}
-export async function enableFace(password) {
-  const m = await meta();
-  const raw = await unseal(await pwKey(password, m.pw.salt), m.pw);
-  const salt = toB64(crypto.getRandomValues(new Uint8Array(32)));
-  const cred = await createPasskey('passwords', { prf: { eval: { first: fromB64(salt) } } });
-  const ext = cred.getClientExtensionResults().prf;
-  if (!ext || ext.enabled === false) throw new Error('prf-unsupported');
-  const credId = toB64(new Uint8Array(cred.rawId));
-  const secret = ext.results && ext.results.first ? ext.results.first : await prfSecret(credId, salt);
-  m.face = { cred: credId, salt, ...(await seal(await prfKey(secret), raw)) };
-  await S.kv.set('vault', m);
-}
-export async function changePassword(oldPw, newPw) {
-  const m = await meta();
-  const raw = await unseal(await pwKey(oldPw, m.pw.salt), m.pw);
-  const salt = toB64(crypto.getRandomValues(new Uint8Array(16)));
-  m.pw = { salt, ...(await seal(await pwKey(newPw, salt), raw)) };
-  await S.kv.set('vault', m);
 }
 
 export function lock() {
@@ -137,13 +105,13 @@ export async function syncEntries() {
   const key = syncKeyGetter && await syncKeyGetter();
   const m = key && await S.kv.get('loginsMirror');
   if (!m) return null; // unknown: keep whatever the remote has
-  try { return await openJson(key, m); } catch (e) { return null; }
+  try { return await openJson(key, mirrorBytes(m)); } catch (e) { return null; }
 }
 
 /** Merged entries from sync. */
 export async function syncApply(entries) {
   const key = syncKeyGetter && await syncKeyGetter();
-  if (key) await S.kv.set('loginsMirror', await sealJson(key, entries));
+  if (key) await S.kv.set('loginsMirror', toB64(await sealJson(key, entries)));
   if (dataKey) {
     let any = false;
     for (const [uid, e] of Object.entries(entries)) {
@@ -154,9 +122,11 @@ export async function syncApply(entries) {
   }
 }
 
+const mirrorBytes = (m) => (typeof m === 'string' ? fromB64(m) : m); // older versions stored the bytes
+
 async function writeMirror() {
   const key = syncKeyGetter && await syncKeyGetter();
-  if (key && dataKey) await S.kv.set('loginsMirror', await sealJson(key, Object.fromEntries(plain)));
+  if (key && dataKey) await S.kv.set('loginsMirror', toB64(await sealJson(key, Object.fromEntries(plain))));
 }
 
 /** On unlock: take in what sync received while the vault was locked. */
@@ -165,7 +135,7 @@ async function mergeMirror() {
   const m = key && await S.kv.get('loginsMirror');
   if (m) {
     try {
-      const entries = await openJson(key, m);
+      const entries = await openJson(key, mirrorBytes(m));
       for (const [uid, e] of Object.entries(entries)) {
         const cur = plain.get(uid);
         if (!cur || e.m > cur.m) await store(uid, e);

@@ -217,6 +217,16 @@ public class Vault {
 
     // ---- sync: a copy of the logins sealed with the sync key, so sync can run while the vault is locked
 
+    /** True once this phone's own passwords are in the sealed copy (or there is no vault here). */
+    static boolean inSync(Context c) {
+        return !new Vault(c).exists() || SyncEngine.prefs(c).getBoolean("vaultIn", false);
+    }
+
+    /** Counts password changes on this phone, so sync notices them. */
+    static long edits(Context c) {
+        return SyncEngine.prefs(c).getLong("vaultEdits", 0);
+    }
+
     static File syncCopyFile(Context c) {
         return new File(c.getFilesDir(), "vault_sync.bin");
     }
@@ -273,6 +283,8 @@ public class Vault {
                 }
             }
             writeSyncCopy(ctx, key, rows);
+            SharedPreferences sp = SyncEngine.prefs(ctx);
+            sp.edit().putBoolean("vaultIn", true).putLong("vaultEdits", sp.getLong("vaultEdits", 0) + 1).apply();
         } catch (Exception ignored) {
             // the next save tries again
         }
