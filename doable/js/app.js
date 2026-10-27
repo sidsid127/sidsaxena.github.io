@@ -145,7 +145,7 @@ function settingsMenu() {
     { label: 'Notifications while Doable is open', action: askNotifications },
     { label: 'Install on this device…', action: installHelp },
     { label: 'About Doable', action: () => alert('Doable', 'Your data is stored on this device. With sync turned on, it is '
-      + 'end-to-end encrypted with your sync passphrase before it goes to your own Google Drive.\n\nVersion 6.6 (web)') },
+      + 'end-to-end encrypted with your sync passphrase before it goes to your own Google Drive.\n\nVersion 6.7 (web)') },
   ]);
 }
 

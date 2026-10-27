@@ -91,7 +91,7 @@ async function renderLocked(page) {
   page.appendChild(empty('🔒\nYour credentials are encrypted on this device.'));
   page.appendChild(h('button.btn.primary.block', { type: 'button', onclick: open }, P.usesFace() ? 'Unlock with Touch ID / Face ID' : 'Unlock'));
   // Ask right away, once each time Credentials is opened — and only while it is still the page on screen.
-  if (!autoTried) { autoTried = true; setTimeout(() => { if (onScreen()) open(); }, 200); }
+  if (!autoTried && !document.hidden) { autoTried = true; setTimeout(() => { if (onScreen()) open(); }, 200); }
 }
 let autoTried = false;
 const onScreen = () => app.current && app.current() && app.current().id === 'vault' && !document.hidden;
@@ -199,5 +199,13 @@ export default {
   ] : []),
 };
 
-// Lock whenever Doable goes to the background.
-document.addEventListener('visibilitychange', () => { if (document.hidden && V.isOpen()) V.lock(); });
+// Lock whenever Doable goes to the background; coming back to Credentials asks for Touch ID again by itself.
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    autoTried = true; // no prompt while hidden
+    if (V.isOpen()) V.lock();
+    autoTried = false;
+  } else if (onScreen() && !V.isOpen()) {
+    app.refresh();
+  }
+});
