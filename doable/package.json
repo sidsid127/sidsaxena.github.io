@@ -1,0 +1,5 @@
+{
+  "name": "doable-web",
+  "private": true,
+  "description": "Doable web app: static files plus api/token.js (keeps Google sign-in alive)"
+}

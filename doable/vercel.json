@@ -1,0 +1,3 @@
+{
+  "functions": { "api/token.js": { "maxDuration": 10 } }
+}
