@@ -30,7 +30,7 @@ import java.util.Map;
 final class GoogleDrive {
 
     /** OAuth client of type "iOS" from Google Cloud (it has no secret; see doable/GOOGLE-SETUP.md). */
-    static final String DEFAULT_CLIENT_ID = "";
+    static final String DEFAULT_CLIENT_ID = "183622277089-3tpjo73hok0qib5bnid2p97nbvankabp.apps.googleusercontent.com";
 
     private static final String SCOPE = "https://www.googleapis.com/auth/drive.appdata email";
     private static final String API = "https://www.googleapis.com/drive/v3";

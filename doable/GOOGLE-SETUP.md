@@ -40,17 +40,17 @@ see any of your other files) and your **email address** (to show which account i
 
 ## 4. Client for Android
 
-**Clients → Create client** → type **Desktop app** → name `Doable Android` → **Create**, copy the
-**Client ID** and the **Client secret** (`GOCSPX-…`). (For desktop/installed apps Google treats the "secret"
-as not confidential.)
+**Clients → Create client** → type **iOS** (Google's type for installed apps without a secret — it works for
+Android too) → name `Doable Android` → Bundle ID `com.sidsaxena.daybook` → **Create**, copy the **Client ID**.
+No client secret is involved anywhere.
 
 ## 5. Put the IDs into Doable
 
-Either send the three values to Claude to build them into the apps, or enter them yourself:
+Both IDs are built into the apps, so users only sign in:
 
-* **Web (iPhone / Mac):** Doable → ☰ → Sync & backup → Google client ID → paste the *web* client ID
-  (once per device). Or put it in `doable/config.js` so every device has it.
-* **Android:** ☰ → Sync with Google → **Google client…** → paste the *Desktop* client ID and secret.
+* **Web (iPhone / Mac):** `doable/config.js` → `GOOGLE_WEB_CLIENT_ID`.
+* **Android:** `GoogleDrive.DEFAULT_CLIENT_ID`, plus the matching redirect scheme
+  `com.googleusercontent.apps.<client ID without .apps.googleusercontent.com>` in `AndroidManifest.xml`.
 
 ## 6. Turn sync on
 
