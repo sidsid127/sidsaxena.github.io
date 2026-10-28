@@ -1,6 +1,6 @@
 {
- "versionCode": 22,
- "versionName": "7.4",
+ "versionCode": 23,
+ "versionName": "7.5",
  "apk": "android/Doable.apk",
- "notes": "• Joining a household: clear steps when an invitation isn't ready yet, and \"Join with an invitation link\"\n• Households stay in step in the background, and invitations get finished automatically"
+ "notes": "Shared expenses: who paid what, balances and settle up\nAssign household tasks, plus an \"Assigned to me\" view\nRecent activity on the household page, with notifications\nCleaner menus everywhere"
 }

@@ -59,15 +59,15 @@ public class MainActivity extends Activity {
     private UriPicked pendingUri;
 
     /** Modules in side-menu order; the last one (activity log) sits below a divider. */
-    private static final String[] MODULE_IDS = {"today", "tasks", "notes", "diary", "trips", "grocery", "habits",
+    private static final String[] MODULE_IDS = {"today", "tasks", "notes", "diary", "trips", "grocery", "split", "habits",
             "dates", "checklists", "wallet", "vault", "log"};
     private static final int[] MODULE_NAMES = {
             R.string.module_today, R.string.module_tasks, R.string.module_notes, R.string.module_diary, R.string.module_trips,
-            R.string.module_grocery, R.string.module_habits, R.string.module_dates, R.string.module_checklists,
+            R.string.module_grocery, R.string.module_split, R.string.module_habits, R.string.module_dates, R.string.module_checklists,
             R.string.module_wallet, R.string.module_vault, R.string.module_log};
     private static final int[] MODULE_ICONS = {
             R.drawable.ic_today, R.drawable.ic_todo, R.drawable.ic_note, R.drawable.ic_diary, R.drawable.ic_trip,
-            R.drawable.ic_cart, R.drawable.ic_habit, R.drawable.ic_cake, R.drawable.ic_checklist,
+            R.drawable.ic_cart, R.drawable.ic_split, R.drawable.ic_habit, R.drawable.ic_cake, R.drawable.ic_checklist,
             R.drawable.ic_wallet, R.drawable.ic_key, R.drawable.ic_history};
 
     interface AuthResult {
@@ -146,7 +146,7 @@ public class MainActivity extends Activity {
 
         screens = new Screen[]{
                 new TodayScreen(this), new TasksScreen(this), new NotesScreen(this), new DiaryScreen(this),
-                new TripsScreen(this), new GroceryScreen(this), new HabitsScreen(this), new DatesScreen(this),
+                new TripsScreen(this), new GroceryScreen(this), new SplitScreen(this), new HabitsScreen(this), new DatesScreen(this),
                 new ChecklistsScreen(this), new WalletScreen(this), new VaultScreen(this), new LogScreen(this)};
         for (Screen s : screens) {
             s.root.setVisibility(View.GONE);
@@ -236,6 +236,11 @@ public class MainActivity extends Activity {
         }
         if (GoogleDrive.handleRedirect(this, i.getData())) {
             setIntent(new Intent(this, MainActivity.class));
+            return;
+        }
+        if (i.getBooleanExtra("household", false) && !locked) {
+            setIntent(new Intent(this, MainActivity.class));
+            SpacesUi.show(this, null);
             return;
         }
         boolean share = ShareIn.isShare(i);
@@ -436,17 +441,23 @@ public class MainActivity extends Activity {
             public void run() {
                 boolean got = false;
                 try {
-                    if (refresh) Spaces.refresh(app);
+                    if (refresh) {
+                        Spaces.refresh(app);
+                        HouseLog.notices(app);
+                    }
                     got = Spaces.round(app);
                 } catch (Exception e) {
                     // offline: next tick
                 }
                 spacing.set(false);
                 final boolean changed = got;
+                final String news = HouseLog.announce(app, true);
                 runOnUiThread(new Runnable() {
                     public void run() {
                         if (isFinishing()) return;
                         if (changed) reloadCurrent();
+                        if (news != null) Toast.makeText(MainActivity.this, news, Toast.LENGTH_SHORT).show();
+                        if (changed || refresh) SpacesUi.rerender(MainActivity.this);
                         if (refresh) {
                             buildDrawer();
                             SpacesUi.promptInvites(MainActivity.this);

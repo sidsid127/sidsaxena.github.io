@@ -78,6 +78,11 @@ final class SpacesUi {
         });
     }
 
+    /** Shows new members, activity… when the page is open. */
+    static void rerender(MainActivity a) {
+        if (page != null && page.isShowing()) render(a);
+    }
+
     private static void render(final MainActivity a) {
         LinearLayout outer = new LinearLayout(a);
         outer.setOrientation(LinearLayout.VERTICAL);
@@ -287,6 +292,17 @@ final class SpacesUi {
             body.addView(mods);
         }
 
+        List<JSONObject> log = HouseLog.forSpace(a, id);
+        AccountUi.section(a, body, "Recent activity");
+        LinearLayout acts = AccountUi.card(a);
+        if (log.isEmpty()) AccountUi.row(a, acts, "🕘", "Nothing yet", "What others add, tick off or assign shows here", null);
+        for (int i = 0; i < Math.min(15, log.size()); i++) {
+            JSONObject e = log.get(i);
+            AccountUi.row(a, acts, e.optBoolean("mine") ? "👉" : "🕘", e.optString("name") + " " + e.optString("text"),
+                    android.text.format.DateUtils.getRelativeTimeSpanString(e.optLong("at")).toString(), null);
+        }
+        body.addView(acts);
+
         AccountUi.section(a, body, "");
         LinearLayout end = AccountUi.card(a);
         if (owner && household) {
@@ -339,7 +355,7 @@ final class SpacesUi {
                 final String[] made = new String[1];
                 background(a, new Job() {
                     public void run() throws Exception {
-                        made[0] = Spaces.create(a, name, new String[]{"grocery", "tasks", "checklists", "dates"}, "household");
+                        made[0] = Spaces.create(a, name, new String[]{"grocery", "tasks", "checklists", "dates", "split"}, "household");
                     }
                 }, new Runnable() {
                     public void run() {
@@ -591,9 +607,14 @@ final class SpacesUi {
                 public void run() { show(a, null); }
             });
         }
-        new AlertDialog.Builder(a).setTitle("Share").setItems(labels.toArray(new String[0]), new DialogInterface.OnClickListener() {
-            public void onClick(DialogInterface d, int which) { actions.get(which).run(); }
-        }).show();
+        List<Menus.Item> items = new ArrayList<Menus.Item>();
+        for (int i = 0; i < labels.size(); i++) {
+            String l = labels.get(i);
+            int sp = l.indexOf(' ');
+            boolean stop = l.contains("make private") || l.contains("stop sharing");
+            items.add(new Menus.Item(l.substring(0, sp), l.substring(sp + 1), null, stop, false, actions.get(i)));
+        }
+        Menus.show(a, "Share", items);
     }
 
     /** A small "Share…" link for edit forms (existing rows only). */

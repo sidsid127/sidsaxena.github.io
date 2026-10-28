@@ -45,7 +45,9 @@ public class SyncJob extends JobService {
                 if (sharing) {
                     try {
                         Spaces.refresh(SyncJob.this);
+                        HouseLog.notices(SyncJob.this);
                         Spaces.round(SyncJob.this);
+                        HouseLog.announce(SyncJob.this, false);
                     } catch (Exception ignored) {
                         // next time
                     }

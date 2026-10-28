@@ -80,6 +80,7 @@ class TasksScreen extends Screen {
 
     /** Rows shown in the list: Db.Task or Util.Header. */
     private final List<Object> rows = new ArrayList<Object>();
+    private java.util.Map<String, String> memberNames = new java.util.HashMap<String, String>();
     private final RowAdapter adapter = new RowAdapter();
 
     TasksScreen(MainActivity activity) {
@@ -204,8 +205,9 @@ class TasksScreen extends Screen {
                         selectFilter(0, 0);
                     }
                 }, null));
-        String[][] smarts = {{"today", "Today"}, {"upcoming", "Upcoming"}, {"calendar", "📅 Calendar"}};
+        String[][] smarts = {{"today", "Today"}, {"upcoming", "Upcoming"}, {"calendar", "📅 Calendar"}, {"mine", "👤 Assigned to me"}};
         for (final String[] sv : smarts) {
+            if (sv[0].equals("mine") && Spaces.list(a).isEmpty() && !smart.equals("mine")) continue;
             chipsTop.addView(chip(sv[1], 0xFF1E9C9A, smart.equals(sv[0]), new View.OnClickListener() {
                 public void onClick(View v) { selectSmart(sv[0]); }
             }, null));
@@ -270,32 +272,35 @@ class TasksScreen extends Screen {
     }
 
     private void categoryOptions(final Db.Category k) {
-        new AlertDialog.Builder(a)
-                .setTitle(k.name)
-                .setItems(new String[]{"Share…", "Rename", "Delete"}, new DialogInterface.OnClickListener() {
-                    public void onClick(DialogInterface d, int which) {
-                        if (which == 0) {
-                            SpacesUi.shareMenu(a, "tasks", "categories", k.id, new Runnable() {
-                                public void run() { reload(); }
-                            });
-                        } else if (which == 1) {
-                            Util.prompt(a, "Rename category", k.name, "", "Save", new Util.TextEntered() {
-                                public void onText(String name) {
-                                    db.renameCategory(k.id, name);
-                                    reload();
-                                }
-                            });
-                        } else {
-                            String where = k.parent == 0 ? "will have no category" : "move to " + categoryById.get(k.parent).name;
-                            Util.confirm(a, "Delete \"" + k.name + "\"?",
-                                    (k.parent == 0 ? "Its sub-categories are deleted too. " : "")
-                                            + "Tasks are not deleted, they " + where + ".", "Delete", new Runnable() {
-                                        public void run() {
-                                            db.deleteCategory(k);
-                                            reload();
-                                        }
-                                    });
-                        }
+        Menus.of(a, k.name)
+                .add("👥", "Share…", "With your household or a person", new Runnable() {
+                    public void run() {
+                        SpacesUi.shareMenu(a, "tasks", "categories", k.id, new Runnable() {
+                            public void run() { reload(); }
+                        });
+                    }
+                })
+                .add("✏️", "Rename", new Runnable() {
+                    public void run() {
+                        Util.prompt(a, "Rename category", k.name, "", "Save", new Util.TextEntered() {
+                            public void onText(String name) {
+                                db.renameCategory(k.id, name);
+                                reload();
+                            }
+                        });
+                    }
+                })
+                .danger("🗑", "Delete category", new Runnable() {
+                    public void run() {
+                        String where = k.parent == 0 ? "will have no category" : "move to " + categoryById.get(k.parent).name;
+                        Util.confirm(a, "Delete \"" + k.name + "\"?",
+                                (k.parent == 0 ? "Its sub-categories are deleted too. " : "")
+                                        + "Tasks are not deleted, they " + where + ".", "Delete", new Runnable() {
+                                    public void run() {
+                                        db.deleteCategory(k);
+                                        reload();
+                                    }
+                                });
                     }
                 })
                 .show();
@@ -313,6 +318,7 @@ class TasksScreen extends Screen {
         if (smart.equals("today") && (t.due == 0 || t.due > today)) return false;
         if (smart.equals("upcoming") && (t.due <= today || Util.daysFromToday(t.due) > 7)) return false;
         if (smart.equals("calendar") && t.due != calDay) return false;
+        if (smart.equals("mine") && !t.assignee.equals(Account.user(a).optString("id"))) return false;
         if (selTop == 0) return true;
         if (selSub != 0) return t.category == selSub;
         if (t.category == selTop) return true;
@@ -347,6 +353,7 @@ class TasksScreen extends Screen {
         updateInputHint();
         subCounts = st.subtaskCounts();
         subsByTask = st.subtasksByTask();
+        memberNames = Spaces.names(a);
         rows.clear();
         buildCalendar();
 
@@ -429,6 +436,7 @@ class TasksScreen extends Screen {
         if (smart.equals("today")) s.insert(0, "Today and overdue · ");
         else if (smart.equals("upcoming")) s.insert(0, "Next 7 days · ");
         else if (smart.equals("calendar")) s.insert(0, Util.dayLabel(calDay) + " · ");
+        else if (smart.equals("mine")) s.insert(0, "Assigned to me · ");
         summary.setText(s);
         adapter.notifyDataSetChanged();
     }
@@ -603,6 +611,31 @@ class TasksScreen extends Screen {
         catSpinner.setSelection(Math.max(0, catIds.indexOf(task.category)));
         box.addView(catSpinner);
 
+        // Assigned to: members of the household (or person) this task or its category is shared with.
+        final String me = Account.user(a).optString("id");
+        String spaceId = task.id != 0 ? Spaces.spaceOfRow(a, "tasks", task.id) : task.category != 0 ? Spaces.spaceOfRow(a, "categories", task.category) : "";
+        final String taskSpace = spaceId;
+        final List<String> whoIds = new ArrayList<String>();
+        List<String> whoNames = new ArrayList<String>();
+        whoIds.add("");
+        whoNames.add("Nobody");
+        for (org.json.JSONObject m : Spaces.members(a, spaceId)) {
+            String n = m.optString("name");
+            whoIds.add(m.optString("user_id"));
+            whoNames.add(m.optString("user_id").equals(me) ? "Me" : n.isEmpty() ? m.optString("email") : n);
+        }
+        if (!task.assignee.isEmpty() && !whoIds.contains(task.assignee)) {
+            whoIds.add(task.assignee);
+            whoNames.add("Someone who left");
+        }
+        final Spinner whoSpinner = new Spinner(a);
+        if (whoIds.size() > 2) {
+            box.addView(Util.label(a, "Assigned to"));
+            whoSpinner.setAdapter(new ArrayAdapter<String>(a, android.R.layout.simple_spinner_dropdown_item, whoNames));
+            whoSpinner.setSelection(Math.max(0, whoIds.indexOf(task.assignee)));
+            box.addView(whoSpinner);
+        }
+
         box.addView(Util.label(a, "Priority"));
         final Spinner prioSpinner = new Spinner(a);
         prioSpinner.setAdapter(new ArrayAdapter<String>(a, android.R.layout.simple_spinner_dropdown_item,
@@ -708,7 +741,13 @@ class TasksScreen extends Screen {
                         task.repeat = repeatRules.get(repeat.getSelectedItemPosition());
                         if (!task.repeat.isEmpty() && task.due == 0) task.due = Util.startOfDay(System.currentTimeMillis());
                         task.notes = notes.getText().toString().trim();
+                        String was = task.assignee;
+                        if (whoIds.size() > 2) task.assignee = whoIds.get(whoSpinner.getSelectedItemPosition());
                         db.saveTask(task);
+                        if (!task.assignee.isEmpty() && !task.assignee.equals(was) && !task.assignee.equals(me) && !taskSpace.isEmpty()) {
+                            Spaces.tell(a.getApplicationContext(), taskSpace, task.assignee, "assigned");
+                            a.syncSpacesSoon();
+                        }
                         st.replaceSubtasks(task.id, subs);
                         if (task.time >= 0) a.ensureNotifications();
                         reload();
@@ -1027,7 +1066,11 @@ class TasksScreen extends Screen {
             if (!t.repeat.isEmpty()) ex.append("🔁  ");
             int[] sc = subCounts.get(t.id);
             if (sc != null) ex.append("☑ ").append(sc[0]).append('/').append(sc[1]).append("  ");
-            if (!t.notes.isEmpty()) ex.append("📝");
+            if (!t.notes.isEmpty()) ex.append("📝  ");
+            if (!t.assignee.isEmpty()) {
+                String n = memberNames.get(t.assignee);
+                ex.append("👤 ").append(n == null ? "Assigned" : n);
+            }
             extras.setText(ex.toString().trim());
             extras.setVisibility(ex.length() == 0 ? View.GONE : View.VISIBLE);
             bindSubtasks((LinearLayout) view.findViewById(R.id.subs), t);

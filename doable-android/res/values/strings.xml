@@ -28,6 +28,7 @@
     <string name="module_today">Today</string>
     <string name="module_habits">Habits</string>
     <string name="module_wallet">Wallet</string>
+    <string name="module_split">Shared expenses</string>
     <string name="module_dates">Important dates</string>
     <string name="module_checklists">Checklists</string>
 </resources>

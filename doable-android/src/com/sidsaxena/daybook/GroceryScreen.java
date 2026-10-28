@@ -607,26 +607,26 @@ class GroceryScreen extends Screen {
     }
 
     private void shopOptions(final Db.Shop s) {
-        new AlertDialog.Builder(a)
-                .setTitle(s.name)
-                .setItems(new String[]{"Rename", "Delete"}, new DialogInterface.OnClickListener() {
-                    public void onClick(DialogInterface d, int which) {
-                        if (which == 0) {
-                            Util.prompt(a, "Rename shop", s.name, "", "Save", new Util.TextEntered() {
-                                public void onText(String name) {
-                                    db.renameShop(s.id, name);
-                                    reload();
-                                }
-                            });
-                        } else {
-                            Util.confirm(a, "Delete \"" + s.name + "\"?", "Its items move to \"Any shop\".", "Delete",
-                                    new Runnable() {
-                                        public void run() {
-                                            db.deleteShop(s.id);
-                                            reload();
-                                        }
-                                    });
-                        }
+        Menus.of(a, s.name)
+                .add("✏️", "Rename shop", new Runnable() {
+                    public void run() {
+                        Util.prompt(a, "Rename shop", s.name, "", "Save", new Util.TextEntered() {
+                            public void onText(String name) {
+                                db.renameShop(s.id, name);
+                                reload();
+                            }
+                        });
+                    }
+                })
+                .danger("🗑", "Delete shop", new Runnable() {
+                    public void run() {
+                        Util.confirm(a, "Delete \"" + s.name + "\"?", "Its items move to \"Any shop\".", "Delete",
+                                new Runnable() {
+                                    public void run() {
+                                        db.deleteShop(s.id);
+                                        reload();
+                                    }
+                                });
                     }
                 })
                 .show();

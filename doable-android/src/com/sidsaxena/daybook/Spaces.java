@@ -23,8 +23,11 @@ import java.util.Set;
  */
 final class Spaces {
     static final String[] SYNCED = {"grocery_lists", "grocery", "grocery_history", "categories", "tasks", "subtasks", "notes",
-            "checklists", "checklist_items", "dates", "wallet"};
+            "checklists", "checklist_items", "dates", "wallet", "shared_expenses"};
     private static final Set<String> OWN = new HashSet<String>(java.util.Arrays.asList(Db.SHAREABLE));
+    static {
+        OWN.add("shared_expenses");
+    }
     private static final Map<String, String[]> PARENT = new HashMap<String, String[]>();
     static {
         PARENT.put("grocery", new String[]{"list", "grocery_lists"});
@@ -35,7 +38,7 @@ final class Spaces {
         PARENT.put("categories", new String[]{"parent", "categories"});
     }
     static final String[][] MODULES = {{"grocery", "🛒 Groceries"}, {"tasks", "✅ To-do"}, {"checklists", "☑️ Checklists"},
-            {"dates", "🎂 Important dates"}, {"notes", "📝 Notes"}, {"wallet", "💳 Wallet"}};
+            {"dates", "🎂 Important dates"}, {"notes", "📝 Notes"}, {"wallet", "💳 Wallet"}, {"split", "💶 Shared expenses"}};
     private static final String ID_FILE = "doable.identity";
     private static final String ALIAS = "doable_identity";
 
@@ -109,6 +112,39 @@ final class Spaces {
         JSONArray m = space.optJSONArray("modules");
         for (int i = 0; m != null && i < m.length(); i++) if (module.equals(m.optString(i))) return true;
         return false;
+    }
+
+    static List<JSONObject> members(Context c, String spaceId) {
+        List<JSONObject> out = new ArrayList<JSONObject>();
+        JSONObject sp = spaceId == null || spaceId.isEmpty() ? null : get(c, spaceId);
+        JSONArray m = sp == null ? null : sp.optJSONArray("members");
+        for (int i = 0; m != null && i < m.length(); i++) out.add(m.optJSONObject(i));
+        return out;
+    }
+
+    /** First name (or "Me") of every member of every space, by user id. */
+    static Map<String, String> names(Context c) {
+        Map<String, String> out = new HashMap<String, String>();
+        String me = Account.user(c).optString("id");
+        for (JSONObject sp : list(c)) {
+            for (JSONObject m : members(c, sp.optString("id"))) {
+                String n = m.optString("name");
+                out.put(m.optString("user_id"), m.optString("user_id").equals(me) ? "Me" : (n.isEmpty() ? m.optString("email") : n).split(" ")[0]);
+            }
+        }
+        return out;
+    }
+
+    /** Tells a member about something only devices know (assigned a task, recorded a payment); best effort, off the UI thread. */
+    static void tell(final Context c, final String spaceId, final String userId, final String kind) {
+        new Thread(new Runnable() {
+            public void run() {
+                try {
+                    api(c, "notify", new JSONObject().put("id", spaceId).put("user_id", userId).put("kind", kind));
+                } catch (Exception ignored) {
+                }
+            }
+        }).start();
     }
 
     static String moduleName(String id) {
@@ -312,6 +348,7 @@ final class Spaces {
         JSONObject cursors = obj(state(c), "cursors");
         long since = cursors.optLong(id);
         List<Object[]> toApply = new ArrayList<Object[]>();
+        String me = Account.user(c).optString("id");
         for (int n = 0; n < 50; n++) {
             JSONObject j = api(c, "pull", new JSONObject().put("id", id).put("since", since));
             JSONArray rows = j.optJSONArray("rows");
@@ -328,6 +365,8 @@ final class Spaces {
                 String k = t + "/" + uid;
                 JSONObject local = tables.optJSONObject(t) == null ? null : tables.optJSONObject(t).optJSONObject(uid);
                 long m = entry.optLong("m");
+                String by = row.optString("by");
+                if (!by.isEmpty() && !by.equals(me) && (local == null || m > local.optLong("m"))) HouseLog.note(c, id, by, t, uid, local, entry);
                 if (entry.optInt("d") == 1) {
                     if (local != null && local.optInt("d") != 1 && m > local.optLong("m") && id.equals(spaceOf(tables, t, uid, 0))) toApply.add(new Object[]{t, uid, entry});
                     if (id.equals(where.optString(k))) where.remove(k);

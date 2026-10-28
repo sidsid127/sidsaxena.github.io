@@ -342,43 +342,47 @@ class NotesScreen extends Screen {
     }
 
     private void noteOptions(final Db.Note n) {
-        new AlertDialog.Builder(a)
-                .setTitle(titleOf(n.body))
-                .setItems(new String[]{n.pinned ? "Unpin" : "Pin to top", "Colour…", "Move to folder…", "Delete", "Share…"},
-                        new DialogInterface.OnClickListener() {
-                            public void onClick(DialogInterface d, int which) {
-                                if (which == 4) {
-                                    SpacesUi.shareMenu(a, "notes", "notes", n.id, new Runnable() {
-                                        public void run() { reload(); }
-                                    });
-                                } else if (which == 0) {
-                                    n.pinned = !n.pinned;
-                                    db.saveNoteMeta(n);
-                                    reload();
-                                } else if (which == 1) {
-                                    chooseColor(n);
-                                } else if (which == 2) {
-                                    chooseFolder(n);
-                                } else {
-                                    moveToTrash(n);
-                                }
-                            }
-                        })
+        Menus.of(a, titleOf(n.body))
+                .add("📌", n.pinned ? "Unpin" : "Pin to top", new Runnable() {
+                    public void run() {
+                        n.pinned = !n.pinned;
+                        db.saveNoteMeta(n);
+                        reload();
+                    }
+                })
+                .add("🎨", "Colour", new Runnable() {
+                    public void run() { chooseColor(n); }
+                })
+                .add("📁", "Move to folder", n.folder.isEmpty() ? null : n.folder, new Runnable() {
+                    public void run() { chooseFolder(n); }
+                })
+                .divider()
+                .add("👥", "Share…", "With your household or a person", new Runnable() {
+                    public void run() {
+                        SpacesUi.shareMenu(a, "notes", "notes", n.id, new Runnable() {
+                            public void run() { reload(); }
+                        });
+                    }
+                })
+                .danger("🗑", "Delete", new Runnable() {
+                    public void run() { moveToTrash(n); }
+                })
                 .show();
     }
 
     private void trashOptions(final Db.Note n) {
-        new AlertDialog.Builder(a)
-                .setTitle(titleOf(n.body))
-                .setItems(new String[]{"Restore", "Delete for good"}, new DialogInterface.OnClickListener() {
-                    public void onClick(DialogInterface d, int which) {
-                        if (which == 0) {
-                            n.deleted = 0;
-                            db.saveNoteMeta(n);
-                            Toast.makeText(a, "Note restored", Toast.LENGTH_SHORT).show();
-                        } else {
-                            deleteForGood(n);
-                        }
+        Menus.of(a, titleOf(n.body))
+                .add("↩", "Restore", new Runnable() {
+                    public void run() {
+                        n.deleted = 0;
+                        db.saveNoteMeta(n);
+                        Toast.makeText(a, "Note restored", Toast.LENGTH_SHORT).show();
+                        reload();
+                    }
+                })
+                .danger("🗑", "Delete for good", new Runnable() {
+                    public void run() {
+                        deleteForGood(n);
                         reload();
                     }
                 })

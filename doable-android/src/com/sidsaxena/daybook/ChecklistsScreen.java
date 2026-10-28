@@ -311,19 +311,25 @@ class ChecklistsScreen extends Page {
     }
 
     private void listActions(final Store.Checklist l) {
-        new AlertDialog.Builder(a)
-                .setTitle(l.title)
-                .setItems(new String[]{"Open", "Duplicate", "Delete", "Share…"}, new DialogInterface.OnClickListener() {
-                    public void onClick(DialogInterface d, int which) {
-                        if (which == 3) SpacesUi.shareMenu(a, "checklists", "checklists", l.id, new Runnable() {
+        Menus.of(a, l.title)
+                .add("📂", "Open", new Runnable() {
+                    public void run() { show(l); }
+                })
+                .add("📑", "Duplicate", new Runnable() {
+                    public void run() {
+                        st.copyChecklist(l.id, l.title + " (copy)", l.template, 0);
+                        render();
+                    }
+                })
+                .add("👥", "Share…", "With your household or a person", new Runnable() {
+                    public void run() {
+                        SpacesUi.shareMenu(a, "checklists", "checklists", l.id, new Runnable() {
                             public void run() { render(); }
                         });
-                        else if (which == 0) show(l);
-                        else if (which == 1) {
-                            st.copyChecklist(l.id, l.title + " (copy)", l.template, 0);
-                            render();
-                        } else listActionsDelete(l);
                     }
+                })
+                .danger("🗑", "Delete checklist", new Runnable() {
+                    public void run() { listActionsDelete(l); }
                 })
                 .show();
     }

@@ -32,6 +32,7 @@ public class Db extends SQLiteOpenHelper {
         public String repeat = ""; // Recurrence rule
         public String notes = "";
         public long snooze;     // reminder moved to this moment (0 = use due + time)
+        public String assignee = ""; // user id of the household member it's assigned to ('' = nobody)
 
         /** When the reminder should fire, or 0. */
         public long remindAt() {
@@ -113,7 +114,7 @@ public class Db extends SQLiteOpenHelper {
     }
 
     private Db(Context context) {
-        super(context, "daybook.db", null, 8);
+        super(context, "daybook.db", null, 9);
         setWriteAheadLoggingEnabled(true); // readers (screens) keep working while sync writes
     }
 
@@ -129,9 +130,11 @@ public class Db extends SQLiteOpenHelper {
         createV3(db);
         createV4(db);
         createV5(db);
+        createSharedExpenses(db, false); // before createV6, which gives every synced table its uid and triggers
         createV6(db);
         createV7(db);
         createV8(db);
+        db.execSQL("ALTER TABLE tasks ADD COLUMN assignee TEXT NOT NULL DEFAULT ''");
     }
 
     /** A crash during a sync could leave the "applying" flag set; clear it. */
@@ -163,6 +166,26 @@ public class Db extends SQLiteOpenHelper {
         if (oldVersion < 6) createV6(db);
         if (oldVersion < 7) createV7(db);
         if (oldVersion < 8) createV8(db);
+        if (oldVersion < 9) {
+            db.execSQL("ALTER TABLE tasks ADD COLUMN assignee TEXT NOT NULL DEFAULT ''");
+            createSharedExpenses(db, true);
+        }
+    }
+
+    /**
+     * Version 9: shared expenses of a household (who paid, split between whom; amounts in cents) and task
+     * assignment (tasks.assignee = a Doable account id). `synced` adds the uid / mtime columns and sync triggers,
+     * which a fresh database gets from createV6 instead.
+     */
+    static void createSharedExpenses(SQLiteDatabase db, boolean synced) {
+        db.execSQL("CREATE TABLE shared_expenses (_id INTEGER PRIMARY KEY AUTOINCREMENT, space TEXT NOT NULL DEFAULT '', title TEXT NOT NULL DEFAULT '',"
+                + " cents INTEGER NOT NULL DEFAULT 0, currency TEXT NOT NULL DEFAULT 'EUR', paid_by TEXT NOT NULL DEFAULT '', shares TEXT NOT NULL DEFAULT '',"
+                + " day INTEGER NOT NULL DEFAULT 0, category TEXT NOT NULL DEFAULT '', note TEXT NOT NULL DEFAULT '', kind TEXT NOT NULL DEFAULT 'expense',"
+                + " to_user TEXT NOT NULL DEFAULT '', created INTEGER NOT NULL DEFAULT 0"
+                + (synced ? ", uid TEXT, mtime INTEGER NOT NULL DEFAULT 0" : "") + ")");
+        if (!synced) return;
+        db.execSQL("CREATE UNIQUE INDEX shared_expenses_uid ON shared_expenses (uid)");
+        for (String sql : triggers(SyncSchema.table("shared_expenses"))) db.execSQL(sql);
     }
 
     /** Tables whose rows can be shared with a household or a person ("space" = the space's id, '' = private). */
@@ -393,7 +416,7 @@ public class Db extends SQLiteOpenHelper {
     public List<Task> tasks() {
         List<Task> out = new ArrayList<Task>();
         Cursor c = getReadableDatabase().rawQuery("SELECT _id, title, done, due, created, done_at,"
-                + " category, priority, position, time, repeat, notes, snooze FROM tasks", null);
+                + " category, priority, position, time, repeat, notes, snooze, IFNULL(assignee, '') FROM tasks", null);
         try {
             while (c.moveToNext()) {
                 Task t = new Task();
@@ -410,6 +433,7 @@ public class Db extends SQLiteOpenHelper {
                 t.repeat = c.getString(10);
                 t.notes = c.getString(11);
                 t.snooze = c.getLong(12);
+                t.assignee = c.getString(13);
                 out.add(t);
             }
         } finally {
@@ -443,6 +467,7 @@ public class Db extends SQLiteOpenHelper {
         v.put("repeat", t.repeat);
         v.put("notes", t.notes);
         v.put("snooze", t.snooze);
+        v.put("assignee", t.assignee == null ? "" : t.assignee);
         v.put("done", t.done ? 1 : 0);
         v.put("done_at", t.doneAt);
         v.put("position", t.position);

@@ -50,7 +50,7 @@ final class SyncSchema {
             new Table("dates", null, "title T", "kind T", "month I", "day I", "year I", "yearly I", "remind_days I", "notes T", "created I", "space T"),
             new Table("log", null, "text T", "ts I"),
             new Table("tasks", null, "title T", "done I", "due D", "created I", "done_at I", "category F:categories", "priority I",
-                    "position R", "time I", "repeat T", "notes T", "snooze I", "space T"),
+                    "position R", "time I", "repeat T", "notes T", "snooze I", "space T", "assignee T"),
             new Table("subtasks", null, "task F:tasks", "text T", "done I", "position I"),
             new Table("grocery", null, "name T", "shop F:shops", "done I", "created I", "qty T", "list F:grocery_lists", "aisle T", "urgent I"),
             new Table("grocery_history", "'gh:' || lower(NEW.name)", "name T", "shop F:shops", "uses I", "last_used I", "list F:grocery_lists", "qty T"),
@@ -62,6 +62,8 @@ final class SyncSchema {
                     "habit F:habits", "day D", "count I"),
             new Table("checklist_items", null, "list F:checklists", "text T", "done I", "position I"),
             new Table("attachments", null, "owner T", "owner_id O", "file T", "name T", "created I"),
+            new Table("shared_expenses", null, "space T", "title T", "cents I", "currency T", "paid_by T", "shares T", "day D", "category T",
+                    "note T", "kind T", "to_user T", "created I"),
     };
 
     /** attachments.owner → table. */
