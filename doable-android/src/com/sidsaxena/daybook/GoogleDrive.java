@@ -32,7 +32,7 @@ final class GoogleDrive {
     /** OAuth client of type "iOS" from Google Cloud (it has no secret; see doable/GOOGLE-SETUP.md). */
     static final String DEFAULT_CLIENT_ID = "183622277089-3tpjo73hok0qib5bnid2p97nbvankabp.apps.googleusercontent.com";
 
-    private static final String SCOPE = "https://www.googleapis.com/auth/drive.appdata email";
+    private static final String SCOPE = "https://www.googleapis.com/auth/drive.appdata email profile";
     private static final String API = "https://www.googleapis.com/drive/v3";
     private static final String UPLOAD = "https://www.googleapis.com/upload/drive/v3";
     private static final String ALIAS = "doable_sync";
@@ -119,6 +119,7 @@ final class GoogleDrive {
                 a.runOnUiThread(new Runnable() {
                     public void run() {
                         if (cb != null) cb.done(result);
+                        else if (AccountUi.waiting()) AccountUi.googleDone(a, result);
                         else SyncUi.signedIn(a, result);
                     }
                 });

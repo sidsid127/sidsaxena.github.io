@@ -42,6 +42,7 @@ public class MainActivity extends Activity {
     private static final int MENU_SEARCH = 3;
     private static final int MENU_BACKUP = 4;
     private static final int MENU_MODULES = 5;
+    private static final int MENU_PROFILE = 6;
 
     private static final int REQ_AUTH = 1;
     private static final int REQ_CAMERA = 2;
@@ -190,6 +191,14 @@ public class MainActivity extends Activity {
             new AlertDialog.Builder(this).setMessage(restored).setPositiveButton("OK", null).show();
         }
         if (savedInstanceState == null) handleIntent(getIntent());
+        accountChanged();
+        AccountUi.gate(this);
+    }
+
+    /** Profile or the server's switches changed: side menu, ad strip, announcement. */
+    void accountChanged() {
+        buildDrawer();
+        AccountUi.applyBars(this);
     }
 
     @Override
@@ -380,6 +389,7 @@ public class MainActivity extends Activity {
     protected void onStart() {
         super.onStart();
         leavingForExternal = false;
+        AccountUi.refreshSoon(this, 15 * 60000);
         syncHandler.removeCallbacks(syncTick);
         syncHandler.post(syncTick);
         showLockScreen(locked);
@@ -448,6 +458,15 @@ public class MainActivity extends Activity {
 
     private void buildDrawer() {
         drawerItems.removeAllViews();
+        if (Account.signedIn(this)) {
+            drawerItems.addView(AccountUi.drawerRow(this, new Runnable() {
+                public void run() {
+                    closeDrawer();
+                    AccountUi.showProfile(MainActivity.this);
+                }
+            }));
+            divider();
+        }
         for (int i = 0; i < screens.length; i++) {
             final int index = i;
             if (!isModuleVisible(MODULE_IDS[i])) continue;
@@ -493,6 +512,11 @@ public class MainActivity extends Activity {
         drawerAction(R.drawable.ic_tune, "Show / hide modules", new Runnable() {
             public void run() { chooseModules(); }
         });
+        if (Account.isAdmin(this)) {
+            drawerAction(R.drawable.ic_history, "Admin page", new Runnable() {
+                public void run() { AccountUi.open(MainActivity.this, Account.SERVER + "?module=admin"); }
+            });
+        }
     }
 
     private void divider() {
@@ -559,6 +583,7 @@ public class MainActivity extends Activity {
         menu.add(0, MENU_LOCK, 50, "Fingerprint app lock").setCheckable(true);
         menu.add(0, MENU_THEME, 51, "Theme (light / dark)");
         menu.add(0, MENU_MODULES, 52, "Show / hide modules…");
+        if (Account.signedIn(this)) menu.add(0, MENU_PROFILE, 53, "Profile & account…");
         return true;
     }
 
@@ -603,6 +628,10 @@ public class MainActivity extends Activity {
         }
         if (id == MENU_MODULES) {
             chooseModules();
+            return true;
+        }
+        if (id == MENU_PROFILE) {
+            AccountUi.showProfile(this);
             return true;
         }
         return super.onOptionsItemSelected(item);
