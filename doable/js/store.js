@@ -92,8 +92,17 @@ export async function openDb() {
   if (!idb) idb = await open();
 }
 
+/** Deletes everything Doable keeps in this browser (sign out / account deleted). The page must reload afterwards. */
+export async function wipeAll() {
+  if (idb) { idb.close(); idb = null; }
+  await new Promise((resolve) => { const r = indexedDB.deleteDatabase('doable'); r.onsuccess = r.onerror = r.onblocked = () => resolve(); });
+  const theme = settings.theme;
+  for (const k of Object.keys(localStorage)) if (k.startsWith('doable.')) localStorage.removeItem(k);
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify({ theme }));
+}
+
 // Secrets in kv (values must be plain JSON); sealed with the device key when protection is on.
-const SECRET_KV = ['syncKey', 'loginsMirror', 'vault', 'googleRefresh'];
+const SECRET_KV = ['syncKey', 'loginsMirror', 'vault', 'googleRefresh', 'account'];
 const rawKv = {
   get: (k) => tx('kv', 'readonly', (s) => s.get(k)),
   set: (k, v) => tx('kv', 'readwrite', (s) => { s.put(v, k); }),

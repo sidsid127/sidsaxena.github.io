@@ -11,7 +11,7 @@ import { h, sheet, toast, confirm, alert, prompt, field, input, card, row, fmtSt
 const DOC = 'doable.sync';
 const API = 'https://www.googleapis.com/drive/v3';
 const UPLOAD = 'https://www.googleapis.com/upload/drive/v3';
-const SCOPE = 'https://www.googleapis.com/auth/drive.appdata email';
+const SCOPE = 'https://www.googleapis.com/auth/drive.appdata email profile';
 const TOMBSTONE_DAYS = 180;
 
 const ls = {
@@ -435,12 +435,40 @@ async function check() {
   } catch (e) { /* signed out or offline: the next full round reports it */ }
 }
 
-export async function start() {
+/** Before the app shows: prepares Google sign-in and takes the answer when coming back from a full-page sign-in. */
+let returned = false;
+export async function init() {
   await prepareSignIn();
-  const back = ls.get('doable.authResult'); // came back from a full-page sign-in
-  if (back && await takeAuthResult(back)) afterSignIn();
+  const back = ls.get('doable.authResult');
+  returned = !!(back && await takeAuthResult(back));
+}
+
+export async function start() {
+  if (returned) afterSignIn();
   else if (cfg().enabled) schedule(500);
   setInterval(check, 10000);
+}
+
+/** A Google access token if this device has one (or can renew one); null otherwise. */
+export const googleToken = () => getToken();
+
+/** Google sign-in for the Doable account (must run from a tap); resolves once Google answered. */
+export function signInGoogle() {
+  return new Promise((resolve) => {
+    pendingAfterSignIn = () => { resolve(true); if (cfg().enabled) syncNow(false); };
+    signIn();
+  });
+}
+
+/** Deletes Doable's synced files from Google Drive (account deletion). False if Google couldn't be reached. */
+export async function deleteRemote() {
+  try {
+    await listFiles();
+    for (const name of [...fileIds.keys()]) await remove(name);
+    return true;
+  } catch (e) {
+    return false;
+  }
 }
 
 // ------------------------------------------------------------------ settings

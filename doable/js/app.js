@@ -5,6 +5,9 @@ import { app } from './ctx.js';
 import * as Sync from './sync.js';
 import * as Lock from './lock.js';
 import * as Protect from './protect.js';
+import * as Account from './account.js';
+import Profile from './m-profile.js';
+import Admin from './m-admin.js';
 import Today from './m-today.js';
 import Tasks from './m-tasks.js';
 import Notes from './m-notes.js';
@@ -20,6 +23,7 @@ import Log from './m-log.js';
 import { searchAll } from './search.js';
 
 export const MODULES = [Today, Tasks, Notes, Diary, Trips, Grocery, Habits, Dates, Checklists, Wallet, Vault, Log];
+const PAGES = [Profile, Admin]; // opened from the account row, not listed as modules
 let current = null;
 const view = () => $('#view');
 
@@ -30,7 +34,7 @@ app.current = () => current;
 
 /** Opens a module, optionally one item in it (uid) or a quick action ("task", "note", "expense"…). */
 app.go = (id, uid, quick) => {
-  const m = MODULES.find((x) => x.id === id);
+  const m = MODULES.find((x) => x.id === id) || PAGES.find((x) => x.id === id);
   if (!m) return;
   closeSide();
   if (m !== current) show(m);
@@ -75,6 +79,11 @@ function bar() {
 function buildSide() {
   const side = clear($('#side'));
   side.appendChild(h('div.side-head', h('img', { src: 'icons/icon-192.png', alt: '' }), 'Doable'));
+  const u = Account.user();
+  if (u) {
+    side.appendChild(h('button.side-account' + (current === Profile ? '.on' : ''), { type: 'button', onclick: () => app.go('profile') },
+      Account.avatar(u, 36), h('span.side-account-text', h('span.side-account-name', u.name || u.email.split('@')[0]), h('span.side-account-mail', u.email))));
+  }
   for (const m of MODULES) {
     if (!app.isVisible(m.id)) continue;
     if (m.id === 'log') side.appendChild(h('div.nav-sep'));
@@ -85,7 +94,28 @@ function buildSide() {
   side.appendChild(h('div.sync-status#sync-status', Sync.statusLine()));
   side.appendChild(h('button.nav-item', { type: 'button', onclick: () => { closeSide(); chooseModules(); } }, icon('tune'), 'Show / hide modules'));
   side.appendChild(h('button.nav-item', { type: 'button', onclick: () => { closeSide(); settingsMenu(); } }, icon('settings'), 'Settings'));
+  if (Account.isAdmin()) side.appendChild(h('button.nav-item' + (current === Admin ? '.on' : ''), { type: 'button', onclick: () => app.go('admin') }, icon('chart'), 'Admin'));
 }
+
+/** Profile, plan and the server's switches changed: side menu, ad strip, announcement. */
+app.accountChanged = () => {
+  if (!current) return;
+  buildSide();
+  const ad = $('#ad-slot');
+  const c = Account.config();
+  ad.hidden = !Account.showAds();
+  if (!ad.hidden) {
+    clear(ad).append(h('span.ad-label', 'Ad'), h('span.ad-text', c.ad_text || 'Doable is free thanks to ads like this one.'),
+      Account.config().pro_enabled ? h('button.ad-remove', { type: 'button', onclick: () => app.go('profile') }, 'Remove ads') : '');
+  }
+  const note = $('#announce');
+  const text = c.announcement || '';
+  note.hidden = !text || localStorage.getItem('doable.announceSeen') === text;
+  if (!note.hidden) {
+    clear(note).append(h('span', text), h('button', { type: 'button', 'aria-label': 'Close', onclick: () => { localStorage.setItem('doable.announceSeen', text); note.hidden = true; } }, '✕'));
+  }
+  if (current === Profile || current === Admin) app.refresh();
+};
 app.syncStatusChanged = () => { const el = $('#sync-status'); if (el) el.textContent = Sync.statusLine(); };
 
 // Wide screens show the menu beside the content; the ☰ button hides it (e.g. while sharing the screen).
@@ -133,6 +163,7 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme
 
 function settingsMenu() {
   menu('Settings', [
+    Account.user() ? { label: '👤 Profile & account', action: () => app.go('profile') } : null,
     { label: 'Theme: ' + { system: 'same as device', light: 'light', dark: 'dark' }[S.settings.theme], action: () => menu('Theme', [
       ['system', 'Same as device'], ['light', 'Light'], ['dark', 'Dark']].map(([v, l]) => ({
       label: l, checked: S.settings.theme === v, action: () => { S.settings.theme = v; S.saveSettings(); applyTheme(); },
@@ -145,7 +176,7 @@ function settingsMenu() {
     { label: 'Notifications while Doable is open', action: askNotifications },
     { label: 'Install on this device…', action: installHelp },
     { label: 'About Doable', action: () => alert('Doable', 'Your data is stored on this device. With sync turned on, it is '
-      + 'end-to-end encrypted with your sync passphrase before it goes to your own Google Drive.\n\nVersion 6.9 (web)') },
+      + 'end-to-end encrypted with your sync passphrase before it goes to your own Google Drive.\n\nVersion 7.0 (web)') },
   ]);
 }
 
@@ -229,6 +260,8 @@ function remindersDue(from, to) {
 async function start() {
   await S.init(await Protect.unlockAtStart());
   applyTheme();
+  await Sync.init();
+  await Account.gate();
   clear($('#search-btn')).appendChild(icon('search'));
   clear($('#more-btn')).appendChild(icon('more'));
   $('#nav-btn').addEventListener('click', () => {
@@ -253,6 +286,7 @@ async function start() {
 
   const start = MODULES.find((m) => m.id === S.settings.module && app.isVisible(m.id)) || MODULES.find((m) => app.isVisible(m.id));
   show(start);
+  app.accountChanged();
   Lock.init();
   handleLaunch();
   Sync.start();
@@ -271,8 +305,11 @@ function handleLaunch() {
   if (p.toString()) history.replaceState(null, '', location.pathname);
 }
 
+let lastRefresh = Date.now();
 addEventListener('visibilitychange', () => {
-  if (document.hidden) { S.flush(); Sync.onHidden(); } else Sync.onVisible();
+  if (document.hidden) { S.flush(); Sync.onHidden(); return; }
+  Sync.onVisible();
+  if (Date.now() - lastRefresh > 15 * 60000) { lastRefresh = Date.now(); Account.refresh(); }
 });
 
 start().catch((e) => {
