@@ -1,6 +1,7 @@
 // Profile: who is signed in, plan (free / Pro) and the ads-or-Pro choice, sync, help, sign out, delete the account.
 import * as A from './account.js';
 import * as Sync from './sync.js';
+import * as SP from './spaces.js';
 import { app } from './ctx.js';
 import { h, card, row, header, prompt, toast, sheet } from './ui.js';
 
@@ -29,6 +30,8 @@ function render(view) {
       try { await A.rename(n); app.refresh(); } catch (e) { toast('Couldn\'t save — are you online?'); }
     } }),
     row({ icon: '🔄', title: 'Sync & backup', sub: Sync.statusLine(), onclick: () => Sync.settingsSheet() }),
+    row({ icon: '🏠', title: 'Household & sharing', sub: SP.households().map((x) => x.name).join(', ') || 'Share lists with your family',
+      end: SP.incoming().length ? h('span.nav-badge', String(SP.incoming().length)) : null, onclick: () => app.go('household') }),
   ));
 
   const c = A.config();

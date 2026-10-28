@@ -3,8 +3,9 @@ import * as S from './store.js';
 import * as L from './logic.js';
 import * as A from './attach.js';
 import { app } from './ctx.js';
+import * as SP from './spaces.js';
 import * as P from './protect.js';
-import { h, header, card, row, empty, sheet, field, input, textarea, select, confirm, toast, fmtDay } from './ui.js';
+import { h, header, card, row, empty, sheet, field, input, textarea, select, confirm, toast, fmtDay, menu } from './ui.js';
 
 export const WALLET_TYPES = ['Loyalty card', 'Credit / debit card', 'ID card', 'Passport', 'Driving licence', 'Health insurance card', 'Insurance policy', 'Membership',
   'Ticket / pass', 'Vehicle', 'Warranty', 'Document', 'Other'];
@@ -46,7 +47,7 @@ function render(view) {
     }
     const pics = A.count('wallet', w.uid);
     if (pics) sub += ' · 📷' + (pics > 1 ? ' ' + pics : '');
-    c.appendChild(row({ icon: walletEmoji(w.type), title: w.title, sub, subClass: w.expiry && L.daysBetween(today, w.expiry) <= 60 ? 'red' : '',
+    c.appendChild(row({ icon: walletEmoji(w.type), title: (SP.badge('wallet', w.uid) ? SP.badge('wallet', w.uid) + ' ' : '') + w.title, sub, subClass: w.expiry && L.daysBetween(today, w.expiry) <= 60 ? 'red' : '',
       onclick: () => details(w), onlongpress: () => edit(w) }));
   }
   view.appendChild(page);
@@ -116,6 +117,7 @@ function edit(w) {
   if (!isNew) buttons.unshift({ label: 'Delete', danger: true, action: async () => {
     if (await confirm('Delete "' + w.title + '"?', 'Its photos are deleted too.', 'Delete')) { saved = true; S.remove('wallet', uid); }
   } });
+  if (!isNew) buttons.unshift({ label: w.space ? '👥 Shared' : 'Share…', action: () => { saved = true; menu('Share "' + w.title + '"', SP.shareItems('wallet', 'wallet', uid, { people: true })); } });
   sheet({ title: isNew ? 'New card or document' : 'Edit', dismissable: false,
     body: [field('Type', type), field('Name', title), field('Front & back (photo or scan)', A.strip('wallet', uid, { label: 'Front / back' })),
       field('Card / document number', number), field('Name on card', holder), expiryField, field('Barcode', barcode), field('Notes', notes)],

@@ -460,6 +460,16 @@ export function signInGoogle() {
   });
 }
 
+/** One small file in Doable's hidden Drive folder (e.g. the sharing key); null when it doesn't exist. Throws offline. */
+export async function readDriveFile(name) {
+  await listFiles();
+  return download_(name);
+}
+export async function writeDriveFile(name, bytes) {
+  await listFiles();
+  await upload(name, bytes);
+}
+
 /** Deletes Doable's synced files from Google Drive (account deletion). False if Google couldn't be reached. */
 export async function deleteRemote() {
   try {

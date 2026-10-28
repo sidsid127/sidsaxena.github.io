@@ -388,3 +388,9 @@ textarea.field { resize: vertical; }
 .switch::after { content: ''; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: #fff; transition: left .15s; }
 .switch.on { background: var(--teal); }
 .switch.on::after { left: 21px; }
+
+/* ---------- households ---------- */
+.nav-badge { margin-left: auto; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px; background: var(--overdue); color: #fff; font-size: 12px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; }
+.house-emoji { font-size: 44px; line-height: 1; }
+.invite-link { font-size: 13px; padding: 10px 12px; background: var(--bg); border-radius: 10px; overflow-wrap: anywhere; margin: 8px 0 12px; color: var(--muted); }
+.shared-tag { font-size: 12px; color: var(--teal); font-weight: 600; }

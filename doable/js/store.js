@@ -9,14 +9,14 @@ const DAY = 'day';
 
 /** Columns and their defaults. REF() = reference to another row's uid, DAY = "YYYY-MM-DD". */
 export const SCHEMA = {
-  categories: { name: '', parent: REF('categories'), color: 0 },
+  categories: { name: '', parent: REF('categories'), color: 0, space: '' },
   tasks: { title: '', done: 0, due: DAY, created: 0, done_at: 0, category: REF('categories'), priority: 0, position: 0, time: -1,
-    repeat: '', notes: '', snooze: 0 },
+    repeat: '', notes: '', snooze: 0, space: '' },
   subtasks: { task: REF('tasks'), text: '', done: 0, position: 0 },
   log: { text: '', ts: 0 },
-  notes: { body: '', pinned: 0, created: 0, modified: 0, color: 0, folder: '', locked: 0, deleted: 0 },
+  notes: { body: '', pinned: 0, created: 0, modified: 0, color: 0, folder: '', locked: 0, deleted: 0, space: '' },
   shops: { name: '', color: 0 },
-  grocery_lists: { name: '' },
+  grocery_lists: { name: '', space: '' },
   grocery: { name: '', shop: REF('shops'), done: 0, created: 0, qty: '', list: REF('grocery_lists'), aisle: '', urgent: 0 },
   grocery_history: { name: '', shop: REF('shops'), uses: 0, last_used: 0, list: REF('grocery_lists'), qty: '' },
   prices: { name: '', shop: REF('shops'), cents: 0, qty: '', day: DAY },
@@ -29,9 +29,9 @@ export const SCHEMA = {
   attachments: { owner: '', owner_id: '', file: '', name: '', created: 0 },
   habits: { name: '', emoji: '', quit: 0, target: 1, days: 127, remind: '', color: 0, archived: 0, created: DAY },
   habit_log: { habit: REF('habits'), day: DAY, count: 0 },
-  wallet: { type: 'Loyalty card', title: '', number: '', holder: '', expiry: DAY, barcode: '', notes: '', created: 0 },
-  dates: { title: '', kind: 'Birthday', month: 1, day: 1, year: 0, yearly: 1, remind_days: 1, notes: '', created: 0 },
-  checklists: { title: '', trip: REF('trips'), template: 0, created: 0 },
+  wallet: { type: 'Loyalty card', title: '', number: '', holder: '', expiry: DAY, barcode: '', notes: '', created: 0, space: '' },
+  dates: { title: '', kind: 'Birthday', month: 1, day: 1, year: 0, yearly: 1, remind_days: 1, notes: '', created: 0, space: '' },
+  checklists: { title: '', trip: REF('trips'), template: 0, created: 0, space: '' },
   checklist_items: { list: REF('checklists'), text: '', done: 0, position: 0 },
   logins: { type: 'Login', title: '', folder: '', url: '', user: '', password: '', number: '', holder: '', expiry: '', cvv: '', pin: '', notes: '', modified: 0 },
 };
@@ -102,7 +102,7 @@ export async function wipeAll() {
 }
 
 // Secrets in kv (values must be plain JSON); sealed with the device key when protection is on.
-const SECRET_KV = ['syncKey', 'loginsMirror', 'vault', 'googleRefresh', 'account'];
+const SECRET_KV = ['syncKey', 'loginsMirror', 'vault', 'googleRefresh', 'account', 'identity'];
 const rawKv = {
   get: (k) => tx('kv', 'readonly', (s) => s.get(k)),
   set: (k, v) => tx('kv', 'readwrite', (s) => { s.put(v, k); }),

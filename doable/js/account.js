@@ -12,6 +12,7 @@ export const user = () => (acct && acct.user) || null;
 export const config = () => (acct && acct.config) || {};
 export const signedIn = () => !!(acct && acct.session);
 export const isAdmin = () => !!(user() && user().admin);
+export const authHeaders = () => (acct && acct.session ? { Authorization: 'Bearer ' + acct.session } : {});
 /** Ads show only when switched on by the admin and the person doesn't have Pro. */
 export const showAds = () => !!(config().ads_enabled && user() && user().plan !== 'pro');
 
@@ -62,6 +63,9 @@ export async function refresh() {
  * was on). Never blocks when the account server can't be reached (offline) — it asks again on the next start.
  */
 export async function gate() {
+  const join = new URLSearchParams(location.search).get('join');
+  if (join && location.hash.length > 1) localStorage.setItem('doable.join', JSON.stringify({ id: join, token: location.hash.slice(1) }));
+  if (join) history.replaceState(null, '', location.pathname);
   acct = await S.kv.get('account');
   if (signedIn()) { refresh(); return; }
   let status = null;

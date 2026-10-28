@@ -2,6 +2,7 @@
 import * as S from './store.js';
 import * as L from './logic.js';
 import { app } from './ctx.js';
+import * as SP from './spaces.js';
 import { h, chip, card, row, empty, pill, sheet, field, input, textarea, select, menu, prompt, confirm, toast, shareText } from './ui.js';
 
 let templates = false;
@@ -41,7 +42,7 @@ function render(view) {
     page.appendChild(card(ls.map((l) => {
       const its = items(l.uid);
       const done = its.filter((i) => i.done).length;
-      return row({ icon: templates ? '📋' : its.length && done === its.length ? '✅' : '☑', title: l.title,
+      return row({ icon: templates ? '📋' : its.length && done === its.length ? '✅' : '☑', title: (SP.badge('checklists', l.uid) ? SP.badge('checklists', l.uid) + ' ' : '') + l.title,
         sub: templates ? `${its.length} items` : `${done} of ${its.length} done` + (l.trip ? ' · trip packing list' : ''),
         onclick: () => { openUid = l.uid; app.refresh(); }, onlongpress: () => listMenu(l) });
     })));
@@ -100,6 +101,7 @@ function itemMenu(i) {
 function listMenu(l) {
   menu(l.title, [
     { label: 'Open', action: () => { openUid = l.uid; app.refresh(); } },
+    ...SP.shareItems('checklists', 'checklists', l.uid, { people: true }),
     { label: 'Duplicate', action: () => copyList(l.uid, l.title + ' (copy)', !!l.template) },
     { label: 'Delete', danger: true, action: () => deleteList(l) },
   ]);

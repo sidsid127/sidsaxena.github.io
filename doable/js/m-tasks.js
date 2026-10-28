@@ -2,6 +2,7 @@
 import * as S from './store.js';
 import * as L from './logic.js';
 import { app } from './ctx.js';
+import * as SP from './spaces.js';
 import { h, icon, chip, menu, sheet, prompt, confirm, toast, header, card, empty, field, input, textarea, select, fmtDay, longPress } from './ui.js';
 
 const PRIORITY = ['None', 'Low', 'Medium', 'High'];
@@ -78,6 +79,7 @@ function taskRow(t, subCounts) {
   const sc = subCounts[t.uid];
   if (sc) meta.push(h('span', `☑ ${sc[0]}/${sc[1]}`));
   if (t.notes) meta.push(h('span', '📝'));
+  if (SP.badge('tasks', t.uid)) meta.push(h('span.shared-tag', SP.spaceLabel(SP.spaceOf('tasks', t.uid))));
   if (t.category && (S.settings.smart || !S.settings.selTop)) {
     meta.push(h('span.tint', { style: { '--c': catColor(t.category) } }, '● ' + catPath(t.category)));
   }
@@ -166,6 +168,9 @@ function edit(t) {
   };
   const buttons = [{ label: 'Cancel' }];
   if (!isNew) buttons.unshift({ label: 'Delete', danger: true, action: async () => { if (await confirm('Delete this task?', t.title, 'Delete')) S.remove('tasks', uid); } });
+  if (!isNew && SP.shareItems('tasks', 'tasks', uid, { people: true }).length) {
+    buttons.unshift({ label: (S.get('tasks', uid) || {}).space ? '👥 Shared' : 'Share…', action: () => { save(); menu('Share this task', SP.shareItems('tasks', 'tasks', uid, { people: true })); } });
+  }
   buttons.push({ label: 'Save', primary: true, action: save });
   sheet({
     title: isNew ? 'New task' : 'Edit task',
@@ -186,6 +191,7 @@ async function newCategory(parent) {
 }
 function categoryMenu(k) {
   menu(k.name, [
+    ...SP.shareItems('tasks', 'categories', k.uid, { people: true }),
     { label: 'Rename', action: async () => { const n = await prompt('Rename', k.name); if (n) S.put('categories', { uid: k.uid, name: n }); } },
     { label: 'Colour', action: () => menu('Colour', S.PALETTE.map((c) => ({ label: '● ' + c, action: () => S.put('categories', { uid: k.uid, color: S.colorInt(c) }) }))) },
     !k.parent ? { label: 'Add sub-category', action: () => newCategory(k.uid) } : null,
@@ -231,7 +237,7 @@ function render(view) {
   }
   const tops = cats().filter((k) => !k.parent).sort((a, b) => a.name.localeCompare(b.name));
   for (const k of tops) {
-    chips.appendChild(chip(k.name, { selected: st.selTop === k.uid && !st.smart, color: S.colorCss(k.color),
+    chips.appendChild(chip((SP.badge('categories', k.uid) ? SP.badge('categories', k.uid) + ' ' : '') + k.name, { selected: st.selTop === k.uid && !st.smart, color: S.colorCss(k.color),
       onclick: () => sel(st.selTop === k.uid && !st.selSub ? '' : k.uid, '', ''), onlongpress: () => categoryMenu(k) }));
   }
   chips.appendChild(chip('+', { onclick: () => newCategory('') }));

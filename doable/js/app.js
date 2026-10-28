@@ -8,6 +8,8 @@ import * as Protect from './protect.js';
 import * as Account from './account.js';
 import Profile from './m-profile.js';
 import Admin from './m-admin.js';
+import Household from './m-household.js';
+import * as Spaces from './spaces.js';
 import Today from './m-today.js';
 import Tasks from './m-tasks.js';
 import Notes from './m-notes.js';
@@ -23,7 +25,7 @@ import Log from './m-log.js';
 import { searchAll } from './search.js';
 
 export const MODULES = [Today, Tasks, Notes, Diary, Trips, Grocery, Habits, Dates, Checklists, Wallet, Vault, Log];
-const PAGES = [Profile, Admin]; // opened from the account row, not listed as modules
+const PAGES = [Profile, Admin, Household]; // opened from the account row, not listed as modules
 let current = null;
 const view = () => $('#view');
 
@@ -83,6 +85,10 @@ function buildSide() {
   if (u) {
     side.appendChild(h('button.side-account' + (current === Profile ? '.on' : ''), { type: 'button', onclick: () => app.go('profile') },
       Account.avatar(u, 36), h('span.side-account-text', h('span.side-account-name', u.name || u.email.split('@')[0]), h('span.side-account-mail', u.email))));
+    const n = Spaces.incoming().length;
+    side.appendChild(h('button.nav-item' + (current === Household ? '.on' : ''), { type: 'button', onclick: () => app.go('household') }, icon('home'),
+      'Household & sharing', n ? h('span.nav-badge', String(n)) : null));
+    side.appendChild(h('div.nav-sep'));
   }
   for (const m of MODULES) {
     if (!app.isVisible(m.id)) continue;
@@ -282,6 +288,7 @@ async function start() {
   S.onChange((tables) => {
     if (current && !current.busy && (!current.tables || current.tables.some((t) => tables.has(t)))) app.refresh();
     Sync.localChanged(tables);
+    Spaces.localChanged(tables);
   });
 
   const start = MODULES.find((m) => m.id === S.settings.module && app.isVisible(m.id)) || MODULES.find((m) => app.isVisible(m.id));
@@ -290,8 +297,26 @@ async function start() {
   Lock.init();
   handleLaunch();
   Sync.start();
+  startSharing();
   setInterval(checkReminders, 30000);
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+}
+
+/** Households and sharing: shared rows every 15 s while on screen, members and invitations every 2 minutes. */
+async function startSharing() {
+  if (!Account.signedIn()) return;
+  await Spaces.load();
+  app.spacesChanged = () => {
+    buildSide();
+    if (current === Household || current === Profile) app.refresh();
+  };
+  const full = async () => { await Spaces.refresh(); await Spaces.round(); };
+  await full();
+  await Spaces.handleJoinLink();
+  Spaces.promptInvites();
+  setInterval(() => { if (!document.hidden && navigator.onLine) Spaces.round(); }, 15000);
+  setInterval(() => { if (!document.hidden && navigator.onLine) Spaces.refresh().then(() => Spaces.promptInvites()); }, 120000);
+  addEventListener('visibilitychange', () => { if (!document.hidden) full(); });
 }
 
 /** ?module=…&quick=… (shortcuts) and shared text (?share). */

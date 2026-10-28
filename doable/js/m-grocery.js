@@ -3,6 +3,7 @@
 import * as S from './store.js';
 import * as L from './logic.js';
 import { app } from './ctx.js';
+import * as SP from './spaces.js';
 import { h, chip, header, card, row, empty, sheet, field, input, select, menu, prompt, confirm, toast, shareText, textarea, fmtDay } from './ui.js';
 
 let lastRemoved = null;
@@ -115,7 +116,7 @@ function render(view) {
   const listChips = h('div.chips');
   for (const l of lists()) {
     const n = S.where('grocery', (i) => !i.done && (i.list || 'seed-list-groceries') === l.uid).length;
-    listChips.appendChild(chip(l.name + (n ? ` (${n} ${n === 1 ? 'item' : 'items'})` : ''), { selected: l.uid === curList(), onclick: () => { st.selList = l.uid; S.saveSettings(); app.refresh(); },
+    listChips.appendChild(chip((SP.badge('grocery_lists', l.uid) ? SP.badge('grocery_lists', l.uid) + ' ' : '') + l.name + (n ? ` (${n} ${n === 1 ? 'item' : 'items'})` : ''), { selected: l.uid === curList(), onclick: () => { st.selList = l.uid; S.saveSettings(); app.refresh(); },
       onlongpress: () => listMenu(l) }));
   }
   listChips.appendChild(chip('+ List', { onclick: async () => {
@@ -322,6 +323,7 @@ function shopMenu(s) {
 }
 function listMenu(l) {
   menu(l.name, [
+    ...SP.shareItems('grocery', 'grocery_lists', l.uid, { people: true }),
     { label: 'Rename', action: async () => { const n = await prompt('Rename list', l.name); if (n) S.put('grocery_lists', { uid: l.uid, name: n }); } },
     l.uid === 'seed-list-groceries' ? null : { label: 'Delete list', danger: true, action: async () => {
       if (!await confirm('Delete "' + l.name + '" and its items?', null, 'Delete')) return;
@@ -347,6 +349,7 @@ export default {
   quick() { setTimeout(() => { const i = document.getElementById('grocery-input'); if (i) i.focus(); }, 50); },
   importText,
   menu: () => [
+    { label: '⋯ This list: share, rename, delete', action: () => { const l = S.get('grocery_lists', curList()); if (l) listMenu(l); } },
     { label: '📈 Prices & price history', action: priceOverview },
     { label: 'Share list (WhatsApp, Messages…)', action: shareList },
     { label: 'Add items from a shared list', action: importDialog },

@@ -3,6 +3,7 @@
 import * as S from './store.js';
 import * as A from './attach.js';
 import { app } from './ctx.js';
+import * as SP from './spaces.js';
 import { verifyUser } from './lock.js';
 import { h, chip, menu, sheet, prompt, confirm, toast, header, card, empty, shareText, fmtStamp } from './ui.js';
 
@@ -82,7 +83,7 @@ function noteRow(n) {
   const color = n.color ? S.colorCss(n.color) : 'transparent';
   return h('div.note-row', { style: { '--nc': color }, onclick: () => openNote(n),
     oncontextmenu: (e) => { e.preventDefault(); noteMenu(n); } },
-    h('div.note-title', (n.locked ? '🔒 ' : '') + titleOf(n.body)),
+    h('div.note-title', (n.locked ? '🔒 ' : '') + (SP.badge('notes', n.uid) ? SP.badge('notes', n.uid) + ' ' : '') + titleOf(n.body)),
     h('div.note-sub', fmtStamp(n.modified) + (n.folder && !S.settings.noteFolder ? ' · 📁 ' + n.folder : '') + (files ? ' · 📎 ' + files : '')
       + (n.locked ? ' · Locked' : n.deleted ? ' · Deleted' : snippet(n.body) ? ' · ' + snippet(n.body) : '')));
 }
@@ -151,7 +152,8 @@ function noteMenu(n) {
       if (n.locked && !await verifyUser('PIN to unlock the note')) return;
       S.put('notes', { uid: n.uid, locked: n.locked ? 0 : 1 });
     } },
-    { label: '↗ Share', action: () => shareText(titleOf(n.body), plain(n.body)) },
+    ...SP.shareItems('notes', 'notes', n.uid, { people: true }),
+    { label: '↗ Send a copy (WhatsApp, email…)', action: () => shareText(titleOf(n.body), plain(n.body)) },
     { label: '🗑 Delete', danger: true, action: () => { S.put('notes', { uid: n.uid, deleted: Date.now() }); toast('Moved to Recently deleted', 'Undo', () => S.put('notes', { uid: n.uid, deleted: 0 })); } },
   ]);
 }
