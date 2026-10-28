@@ -182,7 +182,7 @@ function settingsMenu() {
     { label: 'Notifications while Doable is open', action: askNotifications },
     { label: 'Install on this device…', action: installHelp },
     { label: 'About Doable', action: () => alert('Doable', 'Your data is stored on this device. With sync turned on, it is '
-      + 'end-to-end encrypted with your sync passphrase before it goes to your own Google Drive.\n\nVersion 7.1 (web)') },
+      + 'end-to-end encrypted with your sync passphrase before it goes to your own Google Drive.\n\nVersion 7.2 (web)') },
   ]);
 }
 
@@ -315,7 +315,7 @@ async function startSharing() {
   await Spaces.handleJoinLink();
   Spaces.promptInvites();
   setInterval(() => { if (!document.hidden && navigator.onLine) Spaces.round(); }, 15000);
-  setInterval(() => { if (!document.hidden && navigator.onLine) Spaces.refresh().then(() => Spaces.promptInvites()); }, 120000);
+  setInterval(() => { if (!document.hidden && navigator.onLine) Spaces.refresh().then(() => Spaces.promptInvites()); }, 45000);
   addEventListener('visibilitychange', () => { if (!document.hidden) full(); });
 }
 

@@ -207,6 +207,16 @@ const actions = {
     return { ok: true, space_id: i.space_id };
   },
 
+  /**
+   * The invitee's key changed since the invitation was made (e.g. a new phone): forget the old wrap so a member's
+   * device wraps the space key again for the current key.
+   */
+  async invite_reset(b, req) {
+    const { user } = await signedIn(req);
+    await q(`update invites set wrapped_key = '', key_id = '' where id = $1 and status = 'pending' and email = lower($2)`, [str(b.invite_id, 40), user.email]);
+    return { ok: true };
+  },
+
   async invite_cancel(b, req) {
     const { user } = await signedIn(req);
     const i = (await q(`select space_id from invites where id = $1`, [str(b.invite_id, 40)])).rows[0];

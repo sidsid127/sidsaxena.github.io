@@ -138,7 +138,8 @@ final class SpacesUi {
                 JSONObject from = i.optJSONObject("from");
                 AccountUi.row(a, c, "household".equals(i.optString("kind")) ? "🏠" : "👥",
                         "household".equals(i.optString("kind")) ? i.optString("name") : "Shared with you",
-                        "From " + (from == null ? "" : from.optString("name", from.optString("email"))) + " · tap to answer", new Runnable() {
+                        "From " + (from == null ? "" : from.optString("name", from.optString("email")))
+                                + (i.optString("wrapped_key").isEmpty() ? " · waiting for their Doable — or use their link" : " · tap to join"), new Runnable() {
                             public void run() { answer(a, i); }
                         });
             }
@@ -161,6 +162,9 @@ final class SpacesUi {
                 "Share groceries, to-dos, checklists and more with your family", new Runnable() {
                     public void run() { createHousehold(a); }
                 });
+        AccountUi.row(a, homes, "🔗", "Join with an invitation link", "Paste the link someone sent you", new Runnable() {
+            public void run() { pasteLink(a, null); }
+        });
         body.addView(homes);
         TextView note = AccountUi.text(a, "Everything you share is end-to-end encrypted: only the members can read it — not Doable, not Google.", 13, R.color.muted, false);
         note.setPadding(Util.dp(a, 6), Util.dp(a, 6), Util.dp(a, 6), 0);
@@ -399,20 +403,72 @@ final class SpacesUi {
         }
     }
 
+    /**
+     * An invitation to my email. It can be opened here once a member's device wrapped the household key for my
+     * current key; until then (invited before having Doable, or a new key since) the invitation link works.
+     */
     static void answer(final MainActivity a, final JSONObject i) {
         JSONObject from = i.optJSONObject("from");
         final String who = from == null ? "Someone" : from.optString("name", from.optString("email"));
-        ask(a, i.optString("kind"), i.optString("name"), who, i.optJSONArray("modules"), new Job() {
+        final boolean[] ready = new boolean[1];
+        background(a, new Job() {
             public void run() throws Exception {
-                if (i.optString("wrapped_key").isEmpty()) throw new Exception(who + "'s Doable needs to be opened once to finish this invitation. Try again a bit later.");
-                Spaces.join(a, i.optString("id"), Spaces.unwrapForMe(a, i.optString("wrapped_key")), null);
+                ready[0] = !i.optString("wrapped_key").isEmpty();
+                if (ready[0] && !i.optString("key_id").isEmpty()) {
+                    try {
+                        if (!E2e.keyId(Spaces.identity(a)[0]).equals(i.optString("key_id"))) {
+                            Spaces.api(a, "invite_reset", new JSONObject().put("invite_id", i.optString("id")));
+                            ready[0] = false;
+                        }
+                    } catch (Exception ignored) {
+                        // Google not reachable: try anyway
+                    }
+                }
             }
-        }, new Job() {
-            public void run() throws Exception {
-                Spaces.api(a, "invite_answer", new JSONObject().put("invite_id", i.optString("id")).put("accept", false));
-                Spaces.refresh(a);
+        }, new Runnable() {
+            public void run() {
+                ask(a, i.optString("kind"), i.optString("name"), who, i.optJSONArray("modules"), ready[0] ? new Job() {
+                    public void run() throws Exception {
+                        Spaces.join(a, i.optString("id"), Spaces.unwrapForMe(a, i.optString("wrapped_key")), null);
+                    }
+                } : null, new Job() {
+                    public void run() throws Exception {
+                        Spaces.api(a, "invite_answer", new JSONObject().put("invite_id", i.optString("id")).put("accept", false));
+                        Spaces.refresh(a);
+                    }
+                });
             }
         });
+    }
+
+    /** "…?join=ID#TOKEN" → {id, token}, or null. */
+    static String[] parseLink(String text) {
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("[?&]join=([0-9a-f]+)#([\\w-]{16,})").matcher(text == null ? "" : text.trim());
+        return m.find() ? new String[]{m.group(1), m.group(2)} : null;
+    }
+
+    /** Paste an invitation link (it opened somewhere else, or the in-app invitation isn't ready yet). */
+    static void pasteLink(final MainActivity a, String why) {
+        LinearLayout box = Util.dialogBox(a);
+        if (why != null) box.addView(AccountUi.text(a, why, 15, R.color.text, false));
+        box.addView(AccountUi.text(a, "\nPaste the invitation link you were sent (WhatsApp, SMS, email…):", 14, R.color.muted, false));
+        final EditText field = Util.field(a, "");
+        field.setHint("https://doable-sid.vercel.app/?join=…");
+        android.content.ClipboardManager cm = (android.content.ClipboardManager) a.getSystemService(Context.CLIPBOARD_SERVICE);
+        if (cm != null && cm.hasPrimaryClip() && cm.getPrimaryClip().getItemCount() > 0) {
+            CharSequence clip = cm.getPrimaryClip().getItemAt(0).coerceToText(a);
+            if (parseLink(String.valueOf(clip)) != null) field.setText(clip); // a copied link is filled in already
+        }
+        box.addView(field);
+        new AlertDialog.Builder(a).setTitle(why != null ? "Almost there" : "Join with an invitation link").setView(Util.wrap(a, box))
+                .setNegativeButton("Close", null)
+                .setPositiveButton("Join", new DialogInterface.OnClickListener() {
+                    public void onClick(DialogInterface d, int w) {
+                        String[] l = parseLink(field.getText().toString());
+                        if (l == null) Toast.makeText(a, "That isn't a Doable invitation link", Toast.LENGTH_LONG).show();
+                        else openLink(a, l[0], l[1]);
+                    }
+                }).show();
     }
 
     /** An invite link opened on this phone (https://…/?join=ID#TOKEN). */
@@ -456,17 +512,28 @@ final class SpacesUi {
                 .setNegativeButton("Reject", new DialogInterface.OnClickListener() {
                     public void onClick(DialogInterface d, int w) {
                         background(a, reject, new Runnable() {
-                            public void run() { Toast.makeText(a, "Invitation rejected", Toast.LENGTH_SHORT).show(); }
+                            public void run() {
+                                Toast.makeText(a, "Invitation rejected", Toast.LENGTH_SHORT).show();
+                                if (page != null) render(a);
+                            }
                         });
                     }
                 })
                 .setPositiveButton("Join", new DialogInterface.OnClickListener() {
                     public void onClick(DialogInterface d, int w) {
+                        if (join == null) {
+                            pasteLink(a, who + " invited you before you had Doable, so their Doable has to finish the invitation — it does that by itself "
+                                    + "the next time it is open (on Android also in the background, within about 15 minutes). To join right away, use the invitation link "
+                                    + who + " sent you.");
+                            return;
+                        }
+                        Toast.makeText(a, "Joining…", Toast.LENGTH_SHORT).show();
                         background(a, join, new Runnable() {
                             public void run() {
-                                Toast.makeText(a, household ? "You joined " + name : "Shared with you by " + who, Toast.LENGTH_SHORT).show();
+                                Toast.makeText(a, household ? "You joined " + name : "Shared with you by " + who, Toast.LENGTH_LONG).show();
                                 a.reloadCurrent();
                                 a.accountChanged();
+                                if (page != null) render(a);
                             }
                         });
                     }

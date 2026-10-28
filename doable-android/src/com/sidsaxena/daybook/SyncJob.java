@@ -9,7 +9,8 @@ import android.content.Context;
 
 /**
  * Background sync about every 15 minutes when online (Android's shortest interval), so reminders and widgets follow changes made on other
- * devices even when Doable isn't opened.
+ * devices even when Doable isn't opened. It also keeps households in step and finishes invitations sent to people
+ * who joined Doable meanwhile (their key has to be wrapped by a member's device).
  */
 public class SyncJob extends JobService {
     private static final int ID = 4711;
@@ -29,13 +30,25 @@ public class SyncJob extends JobService {
 
     @Override
     public boolean onStartJob(final JobParameters params) {
-        if (!SyncEngine.enabled(this) || SyncEngine.syncKey(this) == null) return false;
+        final boolean sync = SyncEngine.enabled(this) && SyncEngine.syncKey(this) != null;
+        final boolean sharing = Account.signedIn(this);
+        if (!sync && !sharing) return false;
         new Thread(new Runnable() {
             public void run() {
-                try {
-                    SyncEngine.run(SyncJob.this);
-                } catch (Exception ignored) {
-                    // shown in the sync status next time Doable opens
+                if (sync) {
+                    try {
+                        SyncEngine.run(SyncJob.this);
+                    } catch (Exception ignored) {
+                        // shown in the sync status next time Doable opens
+                    }
+                }
+                if (sharing) {
+                    try {
+                        Spaces.refresh(SyncJob.this);
+                        Spaces.round(SyncJob.this);
+                    } catch (Exception ignored) {
+                        // next time
+                    }
                 }
                 jobFinished(params, false);
             }

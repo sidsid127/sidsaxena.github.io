@@ -177,7 +177,7 @@ public class MainActivity extends Activity {
             }
         }).start();
         setupShortcuts();
-        if (SyncEngine.enabled(this)) {
+        if (SyncEngine.enabled(this) || Account.signedIn(this)) {
             try {
                 SyncJob.schedule(this); // replaces the slower schedule of older versions
             } catch (RuntimeException e) {
@@ -429,7 +429,7 @@ public class MainActivity extends Activity {
             handlePendingJoin();
             return;
         }
-        final boolean refresh = full || System.currentTimeMillis() - spacesRefreshed > 120000;
+        final boolean refresh = full || System.currentTimeMillis() - spacesRefreshed > 45000;
         if (refresh) spacesRefreshed = System.currentTimeMillis();
         final Context app = getApplicationContext();
         new Thread(new Runnable() {

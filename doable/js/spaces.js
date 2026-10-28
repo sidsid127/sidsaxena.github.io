@@ -275,10 +275,20 @@ export async function handleJoinLink() {
   try { j = JSON.parse(localStorage.getItem('doable.join')); } catch (e) { j = null; }
   if (!j || !A.signedIn()) return;
   localStorage.removeItem('doable.join');
-  shown.add(j.id); // the same invitation may also be waiting by email: answer it once
+  await openLink(j.id, j.token);
+}
+
+/** "…?join=ID#TOKEN" pasted or opened: returns {id, token} or null. */
+export function parseLink(text) {
+  const m = /[?&]join=([0-9a-f]+)#([\w-]{16,})/.exec(String(text || '').trim());
+  return m ? { id: m[1], token: m[2] } : null;
+}
+
+export async function openLink(id, token) {
+  shown.add(id); // the same invitation may also be waiting by email: answer it once
   let inv;
   try {
-    inv = await api('invite_open', { invite_id: j.id, token_hash: await E.linkHash(j.token) });
+    inv = await api('invite_open', { invite_id: id, token_hash: await E.linkHash(token) });
   } catch (e) {
     const why = { invite_used: 'This invitation was already used or has expired. Ask for a new link.',
       invite_for_someone_else: 'This invitation is for a different Google account. Sign in with the account it was sent to.',
@@ -288,8 +298,23 @@ export async function handleJoinLink() {
   }
   if (inv.already) { toast('You\'re already in ' + inv.name); return; }
   answerSheet({ name: inv.name, kind: inv.kind, modules: inv.modules, from: inv.from }, async () => {
-    await join(inv.id, await E.linkUnlock(j.token, inv.enc_key), { token_hash: await E.linkHash(j.token) });
-  }, async () => { await api('invite_answer', { invite_id: inv.id, accept: false, token_hash: await E.linkHash(j.token) }); });
+    toast('Joining…', null, null, 10000);
+    await join(inv.id, await E.linkUnlock(token, inv.enc_key), { token_hash: await E.linkHash(token) });
+  }, async () => { await api('invite_answer', { invite_id: inv.id, accept: false, token_hash: await E.linkHash(token) }); });
+}
+
+/** Paste an invitation link (when it opened somewhere else, or the in-app invitation isn't ready yet). */
+export function pasteLink(why = '') {
+  const field = h('input.field', { type: 'url', placeholder: 'https://doable-sid.vercel.app/?join=…', autocomplete: 'off' });
+  sheet({
+    title: why ? 'Almost there' : 'Join with an invitation link',
+    body: [why ? h('p', why) : null, h('p.muted', 'Paste the invitation link you were sent (WhatsApp, SMS, email…):'), field],
+    buttons: [{ label: 'Close' }, { label: 'Join', primary: true, action: async () => {
+      const l = parseLink(field.value);
+      if (!l) { toast('That isn\'t a Doable invitation link'); return false; }
+      await openLink(l.id, l.token);
+    } }],
+  });
 }
 
 /** Invitations sent to my email (shown once per start, and from the profile page). */
@@ -300,9 +325,30 @@ export function promptInvites(force = false) {
     answerInvite(i);
   }
 }
-export function answerInvite(i) {
+/** Whether an invitation to my email can be opened on this device (wrapped for my current key). */
+export async function inviteReady(i) {
+  if (!i.wrapped_key) return false;
+  try {
+    const me = await E.myKeys();
+    if (i.key_id && i.key_id !== await E.keyId(me.pub)) {
+      await api('invite_reset', { invite_id: i.id }); // made for an older key: a member's device wraps it again
+      i.wrapped_key = '';
+      return false;
+    }
+  } catch (e) { /* Google not reachable: try anyway */ }
+  return true;
+}
+
+export async function answerInvite(i) {
+  const ready = await inviteReady(i);
+  const who = i.from.name || i.from.email;
   answerSheet(i, async () => {
-    if (!i.wrapped_key) { alert('Almost there', `${i.from.name || i.from.email}'s Doable needs to be opened once (on any of their devices) to finish this invitation. Try again a bit later — or ask them for the invitation link.`); return false; }
+    if (!ready) {
+      pasteLink(`${who} invited you before you had Doable, so their Doable has to finish the invitation — it does that by itself `
+        + `the next time it is open (on Android also in the background, within about 15 minutes). To join right away, use the invitation link ${who} sent you.`);
+      return false;
+    }
+    toast('Joining…', null, null, 10000);
     await join(i.id, await E.unwrap(i.wrapped_key));
     return true;
   }, async () => { await api('invite_answer', { invite_id: i.id, accept: false }); await refresh(); });

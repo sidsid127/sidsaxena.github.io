@@ -19,7 +19,8 @@ function render(view) {
   if (SP.incoming().length) {
     page.appendChild(header('Invitations for you'));
     page.appendChild(card(SP.incoming().map((i) => row({ icon: i.kind === 'household' ? '🏠' : '👥',
-      title: i.kind === 'household' ? i.name : 'Shared with you', sub: 'From ' + (i.from.name || i.from.email) + ' · tap to answer', onclick: () => SP.answerInvite(i) }))));
+      title: i.kind === 'household' ? i.name : 'Shared with you',
+      sub: 'From ' + (i.from.name || i.from.email) + (i.wrapped_key ? ' · tap to join' : ' · waiting for their Doable — or use their link'), onclick: () => SP.answerInvite(i) }))));
   }
 
   const homes = SP.households();
@@ -28,6 +29,7 @@ function render(view) {
     homes.map((s) => row({ icon: '🏠', title: s.name, sub: s.members.length + (s.members.length === 1 ? ' member' : ' members') + ' · ' + (s.modules.map((m) => SP.moduleName(m).replace(/^\S+ /, '')).join(', ') || 'nothing shared yet')
       + (SP.ready(s.id) ? '' : ' · ⏳ unlocking…'), onclick: () => { openId = s.id; app.refresh(); app.bar(); } })),
     row({ icon: '➕', title: homes.length ? 'Create another household' : 'Create a household', sub: 'Share groceries, to-dos, checklists and more with your family', onclick: createHousehold }),
+    row({ icon: '🔗', title: 'Join with an invitation link', sub: 'Paste the link someone sent you', onclick: () => SP.pasteLink() }),
   ));
   page.appendChild(h('p.muted.small', 'Everything you share is end-to-end encrypted: only the members can read it — not Doable, not Google.'));
 

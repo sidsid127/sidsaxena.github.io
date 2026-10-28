@@ -1,6 +1,6 @@
 {
- "versionCode": 21,
- "versionName": "7.3",
+ "versionCode": 22,
+ "versionName": "7.4",
  "apk": "android/Doable.apk",
- "notes": "• Households: create one, invite family by link, accept or reject invitations\n• Share grocery lists, to-do categories, checklists, notes, dates and wallet cards — end-to-end encrypted\n• Share single items with one person\n• Invitation links open Doable directly"
+ "notes": "• Joining a household: clear steps when an invitation isn't ready yet, and \"Join with an invitation link\"\n• Households stay in step in the background, and invitations get finished automatically"
 }
