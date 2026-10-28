@@ -1,5 +1,8 @@
 {
   "name": "doable-web",
   "private": true,
-  "description": "Doable web app: static files plus api/token.js (keeps Google sign-in alive)"
+  "description": "Doable web app: static files plus the api/ server part (Google sign-in renewal, accounts)",
+  "dependencies": {
+    "pg": "8.13.1"
+  }
 }
