@@ -108,5 +108,5 @@ export default {
   isDeep: () => archived,
   back() { archived = false; app.refresh(); },
   open(uid) { const x = S.get('habits', uid); if (x) edit(x); },
-  menu: () => [archived ? null : { label: 'Archived habits', action: () => { archived = true; app.refresh(); } }],
+  menu: () => [archived ? null : { label: '🗄 Archived habits', action: () => { archived = true; app.refresh(); } }],
 };

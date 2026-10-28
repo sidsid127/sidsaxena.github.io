@@ -138,12 +138,13 @@ async function openNote(n) {
   app.refresh();
 }
 
-function noteMenu(n) {
-  menu(titleOf(n.body), n.deleted ? [
-    { label: 'Restore', action: () => S.put('notes', { uid: n.uid, deleted: 0 }) },
-    { label: 'Delete for good', danger: true, action: () => S.remove('notes', n.uid) },
+function noteMenu(n) { menu(titleOf(n.body), noteItems(n)); }
+function noteItems(n) {
+  return (n.deleted ? [
+    { label: '↩ Restore', action: () => S.put('notes', { uid: n.uid, deleted: 0 }) },
+    { label: '🗑 Delete for good', danger: true, action: () => S.remove('notes', n.uid) },
   ] : [
-    { label: n.pinned ? 'Unpin' : '📌 Pin to top', action: () => S.put('notes', { uid: n.uid, pinned: n.pinned ? 0 : 1 }) },
+    { label: n.pinned ? '📌 Unpin' : '📌 Pin to top', action: () => S.put('notes', { uid: n.uid, pinned: n.pinned ? 0 : 1 }) },
     { label: '🎨 Colour', action: () => menu('Colour', COLOR_NAMES.map((name, i) => ({ label: name, checked: n.color === COLORS[i], action: () => S.put('notes', { uid: n.uid, color: COLORS[i] }) }))) },
     { label: '📁 Move to folder', action: () => menu('Folder', [{ label: 'No folder', action: () => S.put('notes', { uid: n.uid, folder: '' }) },
       ...folders().map((f) => ({ label: f, checked: n.folder === f, action: () => S.put('notes', { uid: n.uid, folder: f }) }))]) },
@@ -315,9 +316,9 @@ export default {
   newWith(body) { if (openUid) closeEditor(); openUid = S.put('notes', { body, created: Date.now(), modified: Date.now() }); preview = false; app.refresh(); return openUid; },
   menu() {
     const n = openUid && S.get('notes', openUid);
-    if (n) return [{ label: 'Note options…', action: () => noteMenu(n) }];
-    return [{ label: '+ New folder', action: newFolder },
-      S.settings.noteFolder === TRASH ? { label: 'Empty Recently deleted', danger: true, action: async () => {
+    if (n) return noteItems(n);
+    return [{ label: '📁 New folder', action: newFolder },
+      S.settings.noteFolder === TRASH ? { label: '🗑 Empty Recently deleted', danger: true, action: async () => {
         const d = S.where('notes', (x) => x.deleted);
         if (d.length && await confirm('Delete ' + d.length + ' note(s) for good?', null, 'Delete')) d.forEach((x) => S.remove('notes', x.uid));
       } } : null];

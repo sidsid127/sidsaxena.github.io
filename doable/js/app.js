@@ -10,6 +10,7 @@ import Profile from './m-profile.js';
 import Admin from './m-admin.js';
 import Household from './m-household.js';
 import * as Spaces from './spaces.js';
+import * as Push from './push.js';
 import Today from './m-today.js';
 import Tasks from './m-tasks.js';
 import Notes from './m-notes.js';
@@ -22,9 +23,10 @@ import Checklists from './m-checklists.js';
 import Wallet from './m-wallet.js';
 import Vault from './m-vault.js';
 import Log from './m-log.js';
+import Split from './m-split.js';
 import { searchAll } from './search.js';
 
-export const MODULES = [Today, Tasks, Notes, Diary, Trips, Grocery, Habits, Dates, Checklists, Wallet, Vault, Log];
+export const MODULES = [Today, Tasks, Notes, Diary, Trips, Grocery, Split, Habits, Dates, Checklists, Wallet, Vault, Log];
 const PAGES = [Profile, Admin, Household]; // opened from the account row, not listed as modules
 let current = null;
 const view = () => $('#view');
@@ -168,31 +170,42 @@ function applyTheme() {
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme);
 
 function settingsMenu() {
+  const themeName = { system: 'Same as device', light: 'Light', dark: 'Dark' }[S.settings.theme];
   menu('Settings', [
-    Account.user() ? { label: '👤 Profile & account', action: () => app.go('profile') } : null,
-    { label: 'Theme: ' + { system: 'same as device', light: 'light', dark: 'dark' }[S.settings.theme], action: () => menu('Theme', [
+    Account.user() ? { label: '👤 Profile & account', sub: Account.user().email, action: () => app.go('profile') } : null,
+    { label: '🎨 Theme', sub: themeName, action: () => menu('Theme', [
       ['system', 'Same as device'], ['light', 'Light'], ['dark', 'Dark']].map(([v, l]) => ({
       label: l, checked: S.settings.theme === v, action: () => { S.settings.theme = v; S.saveSettings(); applyTheme(); },
     }))) },
-    Protect.isOn() ? { label: '🔐 Lock Doable when it opens: ' + (Protect.locksAtStart() ? 'on' : 'off'),
+    '-',
+    Protect.isOn() ? { label: '🔐 Lock Doable when it opens', sub: Protect.locksAtStart() ? 'On' : 'Off', checked: Protect.locksAtStart(),
       action: () => Protect.setStartLock(!Protect.locksAtStart()) } : null,
     Protect.isOn() && !Protect.usesFace() ? { label: '👆 Turn on Touch ID / Face ID…', action: () => Protect.enrollFace() } : null,
-    Protect.isOn() ? null : { label: '🔐 Protect with Touch ID / Face ID…', action: async () => { if (await Protect.setup()) app.refresh(); } },
-    Protect.isOn() ? null : { label: S.settings.lock ? 'App lock: on (PIN / Face ID)' : 'App lock: off', action: () => (S.settings.lock ? Lock.disable() : Lock.enable()) },
-    { label: 'Notifications while Doable is open', action: askNotifications },
-    { label: 'Install on this device…', action: installHelp },
-    { label: 'About Doable', action: () => alert('Doable', 'Your data is stored on this device. With sync turned on, it is '
-      + 'end-to-end encrypted with your sync passphrase before it goes to your own Google Drive.\n\nVersion 7.2 (web)') },
-  ]);
+    Protect.isOn() ? null : { label: '🔐 Protect with Touch ID / Face ID…', sub: 'Encrypts Doable on this device', action: async () => { if (await Protect.setup()) app.refresh(); } },
+    Protect.isOn() ? null : { label: '🔢 App lock', sub: S.settings.lock ? 'On (PIN / Face ID)' : 'Off', action: () => (S.settings.lock ? Lock.disable() : Lock.enable()) },
+    { label: '🔔 Notifications', sub: notificationsLine(), action: askNotifications },
+    { label: '🧩 Show / hide modules', action: chooseModules },
+    '-',
+    { label: '📲 Install on this device…', action: installHelp },
+    { label: 'ℹ️ About Doable', sub: 'Version 7.5 (web)', action: () => alert('Doable', 'Your data is stored on this device. With sync turned on, it is '
+      + 'end-to-end encrypted with your sync passphrase before it goes to your own Google Drive. Shared things are end-to-end encrypted too.\n\nVersion 7.5 (web)') },
+  ], { anchor: $('#more-btn') });
+}
+
+function notificationsLine() {
+  if (!('Notification' in window)) return 'Not available in this browser';
+  return Notification.permission === 'granted' ? 'On' : Notification.permission === 'denied' ? 'Blocked in browser settings' : 'Off';
 }
 
 async function askNotifications() {
-  if (!('Notification' in window)) {
-    alert('Notifications', 'This browser can\'t show notifications. Reminders show inside Doable while it is open.');
+  if ('Notification' in window && Notification.permission === 'granted') {
+    menu('Notifications', [
+      { label: '🔔 Keep notifications on', sub: 'Invitations, household changes, tasks assigned to you, reminders while open', action: () => Push.enable(true) },
+      { label: '🔕 Turn notifications off', danger: true, action: () => Push.disable() },
+    ]);
     return;
   }
-  const p = await Notification.requestPermission();
-  toast(p === 'granted' ? 'Reminders will pop up while Doable is open' : 'Notifications not allowed');
+  await Push.enable(true);
 }
 
 function installHelp() {
@@ -280,9 +293,10 @@ async function start() {
   $('#search-btn').addEventListener('click', openSearch);
   $('#more-btn').addEventListener('click', () => {
     const items = (current.menu ? current.menu() : []).filter(Boolean);
-    menu(current.title ? current.title() : current.name, [...items,
-      { label: '🔄 Sync now', action: () => Sync.syncNow(true) },
-      { label: 'Settings…', action: settingsMenu }]);
+    menu(current.title ? current.title() : current.name, [...items, '-',
+      { label: '🔄 Sync now', sub: Sync.statusLine(), action: () => Sync.syncNow(true) },
+      Account.user() ? { label: '🏠 Household & sharing', action: () => app.go('household') } : null,
+      { label: '⚙️ Settings', action: () => settingsMenu() }], { anchor: $('#more-btn') });
   });
 
   S.onChange((tables) => {
@@ -310,10 +324,12 @@ async function startSharing() {
     buildSide();
     if (current === Household || current === Profile) app.refresh();
   };
+  app.activityChanged = () => { if (current === Household) app.refresh(); };
   const full = async () => { await Spaces.refresh(); await Spaces.round(); };
   await full();
   await Spaces.handleJoinLink();
   Spaces.promptInvites();
+  Push.enable(false); // renews this browser's subscription when notifications are allowed
   setInterval(() => { if (!document.hidden && navigator.onLine) Spaces.round(); }, 15000);
   setInterval(() => { if (!document.hidden && navigator.onLine) Spaces.refresh().then(() => Spaces.promptInvites()); }, 45000);
   addEventListener('visibilitychange', () => { if (!document.hidden) full(); });

@@ -66,7 +66,7 @@ from the passphrase and check it by decrypting. A wrong passphrase fails the GCM
 | table | columns (→ reference, ⓓ day) |
 | --- | --- |
 | categories | name, parent→categories, color, space |
-| tasks | title, done, due ⓓ, created, done_at, category→categories, priority, position, time, repeat, notes, snooze, space |
+| tasks | title, done, due ⓓ, created, done_at, category→categories, priority, position, time, repeat, notes, snooze, space, assignee (Doable user id) |
 | subtasks | task→tasks, text, done, position |
 | log | text, ts |
 | notes | body, pinned, created, modified, color, folder, locked, deleted, space |
@@ -86,6 +86,7 @@ from the passphrase and check it by decrypting. A wrong passphrase fails the GCM
 | dates | title, kind, month, day, year, yearly, remind_days, notes, created, space |
 | checklists | title, trip→trips, template, created, space |
 | checklist_items | list→checklists, text, done, position |
+| shared_expenses | space, title, cents, currency, paid_by (user id), shares (JSON {user id: weight}), day ⓓ, category, note, kind (expense / settle), to_user, created |
 | logins | type, title, folder, url, user, password, number, holder, expiry, cvv, pin, notes, modified (passwords; uid = login id) |
 
 Locked notes are stored with their plain `body` and `locked: 1` — the document itself is encrypted.

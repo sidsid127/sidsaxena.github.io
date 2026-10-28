@@ -115,5 +115,22 @@ eq('cs case', names('NETFLIX'), ['Netflix']);
 eq('cs empty = all', L.searchCredentials(creds, '  ').length, 6);
 eq('cs no match', names('zzz'), []);
 eq('cs folders', L.credentialFolders(creds), ['Demo lab', 'Private']);
+// Shared expenses
+const ex = [
+  { cents: 9000, paid_by: 'a', shares: '{"a":1,"b":1,"c":1}', currency: 'EUR' },   // dinner 90 €, three ways
+  { cents: 1000, paid_by: 'b', shares: '{"a":1,"b":1,"c":1}', currency: 'EUR' },   // 10 € → 3.34 / 3.33 / 3.33
+  { cents: 2000, paid_by: 'c', shares: '{"a":2,"c":1}', currency: 'EUR' },         // 20 € weighted 2:1
+  { cents: 5000, paid_by: 'b', to_user: 'a', kind: 'settle', currency: 'EUR' },   // b pays a back 50 €
+  { cents: 1200, paid_by: 'a', shares: '{"b":1}', currency: 'CHF' },
+  { cents: 0, paid_by: 'a', shares: '{"a":1}' }, { cents: 500, paid_by: '', shares: '{"a":1}' }, { cents: 700, paid_by: 'a', shares: '' },
+];
+const bal = L.splitBalances(ex);
+eq('split EUR', bal.EUR, { a: 9000 - 3000 - 334 - 1334 - 5000, b: 1000 - 3000 - 333 + 5000, c: 2000 - 3000 - 333 - 666 });
+eq('split sums to zero', Object.values(bal.EUR).reduce((n, c) => n + c, 0), 0);
+eq('split other currency kept apart', bal.CHF, { a: 1200, b: -1200 });
+eq('settle up', L.settleUp(bal.EUR), [{ from: 'c', to: 'b', cents: 1999 }, { from: 'a', to: 'b', cents: 668 }]);
+eq('settle up two', L.settleUp({ a: 500, b: -300, c: -200 }), [{ from: 'b', to: 'a', cents: 300 }, { from: 'c', to: 'a', cents: 200 }]);
+eq('settle nothing', L.settleUp({}), []);
+eq('shares parse', [L.splitShares('{"a":1,"b":0,"c":"2"}'), L.splitShares('junk')], [{ a: 1, c: 2 }, {}]);
 console.log(`passes=${pass} fails=${fail}`);
 process.exit(fail ? 1 : 0);

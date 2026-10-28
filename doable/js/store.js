@@ -11,7 +11,7 @@ const DAY = 'day';
 export const SCHEMA = {
   categories: { name: '', parent: REF('categories'), color: 0, space: '' },
   tasks: { title: '', done: 0, due: DAY, created: 0, done_at: 0, category: REF('categories'), priority: 0, position: 0, time: -1,
-    repeat: '', notes: '', snooze: 0, space: '' },
+    repeat: '', notes: '', snooze: 0, space: '', assignee: '' },
   subtasks: { task: REF('tasks'), text: '', done: 0, position: 0 },
   log: { text: '', ts: 0 },
   notes: { body: '', pinned: 0, created: 0, modified: 0, color: 0, folder: '', locked: 0, deleted: 0, space: '' },
@@ -33,6 +33,8 @@ export const SCHEMA = {
   dates: { title: '', kind: 'Birthday', month: 1, day: 1, year: 0, yearly: 1, remind_days: 1, notes: '', created: 0, space: '' },
   checklists: { title: '', trip: REF('trips'), template: 0, created: 0, space: '' },
   checklist_items: { list: REF('checklists'), text: '', done: 0, position: 0 },
+  shared_expenses: { space: '', title: '', cents: 0, currency: 'EUR', paid_by: '', shares: '', day: DAY, category: '', note: '', kind: 'expense',
+    to_user: '', created: 0 },
   logins: { type: 'Login', title: '', folder: '', url: '', user: '', password: '', number: '', holder: '', expiry: '', cvv: '', pin: '', notes: '', modified: 0 },
 };
 export const TABLES = Object.keys(SCHEMA);

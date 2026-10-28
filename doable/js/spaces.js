@@ -10,15 +10,16 @@ import { h, sheet, toast, confirm, alert, prompt, menu } from './ui.js';
 
 export const MODULES = [
   ['grocery', '🛒 Groceries'], ['tasks', '✅ To-do'], ['checklists', '☑️ Checklists'], ['dates', '🎂 Important dates'], ['notes', '📝 Notes'],
-  ['wallet', '💳 Wallet'],
+  ['wallet', '💳 Wallet'], ['split', '💶 Shared expenses'],
 ];
 export const moduleName = (id) => (MODULES.find((m) => m[0] === id) || [id, id])[1];
-const DEFAULT_MODULES = ['grocery', 'tasks', 'checklists', 'dates'];
+const DEFAULT_MODULES = ['grocery', 'tasks', 'checklists', 'dates', 'split'];
 
-const OWN = new Set(['grocery_lists', 'categories', 'tasks', 'notes', 'checklists', 'dates', 'wallet']);
+const OWN = new Set(['grocery_lists', 'categories', 'tasks', 'notes', 'checklists', 'dates', 'wallet', 'shared_expenses']);
 const PARENT = { grocery: ['list', 'grocery_lists'], grocery_history: ['list', 'grocery_lists'], subtasks: ['task', 'tasks'],
   checklist_items: ['list', 'checklists'], tasks: ['category', 'categories'], categories: ['parent', 'categories'] };
-const SYNCED = ['grocery_lists', 'grocery', 'grocery_history', 'categories', 'tasks', 'subtasks', 'notes', 'checklists', 'checklist_items', 'dates', 'wallet'];
+const SYNCED = ['grocery_lists', 'grocery', 'grocery_history', 'categories', 'tasks', 'subtasks', 'notes', 'checklists', 'checklist_items', 'dates', 'wallet',
+  'shared_expenses'];
 export const TABLES = [...SYNCED, 'shops'];
 
 // kv 'spaces': {list, incoming, cursors: {space: seq}, pushed: {space: {"t/uid": m}}, where: {"t/uid": space}}
@@ -62,6 +63,17 @@ export function badge(table, uid) {
   if (!sp) return '🏠';
   return sp.kind === 'household' ? '🏠' : '👥';
 }
+/** Members of the space this row is shared in ([] when private). */
+export function membersOf(table, uid) {
+  const sp = get(spaceOf(table, uid));
+  return sp ? sp.members : [];
+}
+/** Tell a member about something only devices know (assigned a task, recorded a payment). */
+export async function tell(spaceId, userId, kind) {
+  try { await api('notify', { id: spaceId, user_id: userId, kind }); } catch (e) { /* best effort */ }
+}
+export { api as spacesApi };
+
 export function spaceLabel(id) {
   const sp = get(id);
   if (!sp) return 'Shared';
@@ -130,10 +142,12 @@ function forgetSpace(id) {
 export function round() {
   if (running) return running;
   running = (async () => {
+    await activityLog();
     for (const sp of list()) {
       if (!keys.has(sp.id)) continue;
       try { await push(sp.id); await pull(sp.id); } catch (e) { /* offline: next round */ }
     }
+    announce();
     await save();
   })().finally(() => { running = null; });
   return running;
@@ -188,6 +202,7 @@ async function pull(id) {
       try { entry = await E.openRow(key, id, row.tbl, row.uid, row.data); } catch (e) { continue; }
       const k = row.tbl + '/' + row.uid;
       const local = S.data[row.tbl].get(row.uid);
+      if (row.by && row.by !== A.user().id && (!local || entry.m > local.m)) note(id, row.by, row.tbl, row.uid, local, entry);
       if (entry.d) {
         // Gone from the space: remove it here unless it now lives somewhere else on this device.
         if (local && !local.d && entry.m > local.m && spaceOf(row.tbl, row.uid) === id) S.applyRemote(row.tbl, row.uid, entry);
@@ -202,6 +217,63 @@ async function pull(id) {
     st.cursors[id] = since;
     if (!j.more) break;
   }
+}
+
+// ------------------------------------------------------------------ activity
+
+// kv 'activity': [{space, by, name, text, table, uid, at}], newest first, at most 300.
+let activity = null;
+let fresh = [];          // this round's entries by others, for one notification
+export async function activityLog() {
+  if (!activity) activity = (await S.kv.get('activity')) || [];
+  return activity;
+}
+const nameOf = (id, userId) => {
+  const sp = get(id);
+  const m = sp && sp.members.find((x) => x.user_id === userId);
+  return m ? (m.name || m.email).split(' ')[0] : 'Someone';
+};
+const title = (t, r) => (r ? (t === 'notes' ? (r.body || '').split('\n')[0].replace(/^#+\s*/, '') : r.title || r.name || r.text || '') : '').slice(0, 60);
+
+/** "added Milk", "ticked Milk", "completed Call plumber", "assigned you Fix the tap" … */
+function describe(t, before, after) {
+  const r = after.r;
+  const old = before && !before.d ? before.r : null;
+  const what = title(t, r || old);
+  if (after.d) return old ? 'removed ' + what : null;
+  if (t === 'grocery_history' || t === 'shops' || t === 'subtasks' && !old) return null;
+  if (!old && t === 'tasks' && r.assignee && r.assignee === A.user().id) return 'assigned you ' + what;
+  if (!old) return { grocery: 'added ', tasks: 'added the task ', notes: 'added the note ', checklists: 'added the checklist ', checklist_items: 'added ',
+    dates: 'added the date ', wallet: 'added the card ', grocery_lists: 'made the list ', categories: 'made the category ', subtasks: 'added ',
+    shared_expenses: r.kind === 'settle' ? 'recorded a payment ' : 'added the expense ' }[t] + (t === 'shared_expenses' && r.kind === 'settle' ? '' : what);
+  if ('done' in r && r.done !== old.done) return (r.done ? (t === 'tasks' ? 'completed ' : 'ticked ') : 'unticked ') + what;
+  if (t === 'tasks' && r.assignee !== old.assignee) return r.assignee === A.user().id ? 'assigned you ' + what : r.assignee ? 'assigned ' + what : 'unassigned ' + what;
+  return 'changed ' + what;
+}
+function note(id, by, t, uid, before, after) {
+  const text = describe(t, before, after);
+  if (!text) return;
+  const e = { space: id, by, name: nameOf(id, by), text, table: t, uid, at: Date.now(), mine: t === 'tasks' && after.r && after.r.assignee === A.user().id && /^assigned you/.test(text) };
+  activity.unshift(e);
+  fresh.push(e);
+}
+
+/** One notification for what others changed in this round (when Doable is in the background, or for assignments). */
+function announce() {
+  const list = fresh;
+  fresh = [];
+  if (!list.length) return;
+  activity.length = Math.min(activity.length, 300);
+  S.kv.set('activity', activity);
+  app.activityChanged && app.activityChanged(list);
+  const mine = list.filter((e) => e.mine);
+  if (!document.hidden && !mine.length) return;
+  const first = mine[0] || list[0];
+  const more = list.length - 1;
+  const body = first.name + ' ' + first.text + (more > 0 ? ` (+${more} more)` : '');
+  if ('Notification' in window && Notification.permission === 'granted' && navigator.serviceWorker) {
+    navigator.serviceWorker.ready.then((reg) => reg.showNotification(spaceLabel(first.space).replace(/^\S+ /, ''), { body, tag: 'activity:' + first.space, icon: 'icons/icon-192.png' })).catch(() => {});
+  } else toast(body);
 }
 
 // ------------------------------------------------------------------ households

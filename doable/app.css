@@ -166,9 +166,23 @@ textarea.field { resize: vertical; }
 .sheet-body { padding: 8px 20px; overflow-y: auto; flex: 1; }
 .sheet-buttons { display: flex; justify-content: flex-end; gap: 6px; padding: 8px 12px 12px; flex-wrap: wrap; }
 .menu { display: flex; flex-direction: column; margin: 0 -20px; }
-.menu-item { text-align: left; padding: 14px 22px; display: flex; justify-content: space-between; font-size: 16px; }
-.menu-item + .menu-item { border-top: 1px solid var(--line); }
-.menu-item.danger { color: var(--overdue); }
+.menu-item { text-align: left; padding: 11px 22px; display: flex; align-items: center; gap: 14px; font-size: 16px; min-height: 48px; width: 100%; }
+.menu-item:hover, .menu-item:focus-visible { background: var(--selected); outline: none; }
+.menu-item.disabled { opacity: .45; }
+.menu-icon { width: 24px; flex: none; text-align: center; font-size: 18px; display: inline-flex; justify-content: center; color: var(--muted); }
+.menu-icon .icon { width: 20px; height: 20px; }
+.menu-text { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.menu-sub { font-size: 12.5px; color: var(--muted); margin-top: 1px; }
+.menu-item.danger, .menu-item.danger .menu-icon { color: var(--overdue); }
+.menu-sep { height: 1px; background: var(--line); margin: 6px 0; }
+.popover-shade { position: fixed; inset: 0; z-index: 99; }
+.popover {
+  position: fixed; z-index: 100; min-width: 260px; max-width: 360px; max-height: 70vh; overflow-y: auto; background: var(--card);
+  border-radius: 12px; box-shadow: 0 10px 30px rgba(10, 8, 30, .22), 0 0 0 1px var(--line); padding: 6px 0; animation: fade .12s;
+}
+.popover .menu { margin: 0; }
+.popover .menu-item { padding: 9px 16px; min-height: 40px; font-size: 15px; }
+.popover-title { font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); padding: 8px 16px 4px; }
 .check { color: var(--primary-text); font-weight: 700; }
 .toast {
   position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(90px + var(--safe-bottom)); z-index: 200;
@@ -394,3 +408,13 @@ textarea.field { resize: vertical; }
 .house-emoji { font-size: 44px; line-height: 1; }
 .invite-link { font-size: 13px; padding: 10px 12px; background: var(--bg); border-radius: 10px; overflow-wrap: anywhere; margin: 8px 0 12px; color: var(--muted); }
 .shared-tag { font-size: 12px; color: var(--teal); font-weight: 600; }
+.assignee { color: var(--teal); font-weight: 600; }
+
+/* ---------- shared expenses ---------- */
+.split-summary { padding: 16px 16px 6px; }
+.split-big { font-size: 22px; font-weight: 700; margin-bottom: 8px; }
+.split-big.plus, .split-line .plus { color: var(--teal); }
+.split-big.minus, .split-line .minus { color: var(--overdue); }
+.split-line { display: flex; justify-content: space-between; font-size: 15px; padding: 4px 0; }
+.split-actions { display: flex; gap: 8px; padding: 8px 16px 14px; }
+.split-amt { font-weight: 600; white-space: nowrap; padding-left: 8px; }

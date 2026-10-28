@@ -586,3 +586,60 @@ export function csvCell(s, sep) {
   return s.includes(sep) || /["\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
 }
 export const csvRow = (sep, cells) => cells.map((c) => csvCell(c, sep)).join(sep) + '\r\n';
+
+// ------------------------------------------------------------------ shared expenses (mirrored in Android's SplitMath)
+
+/** {userId: weight} from an expense's "shares" text (JSON); empty = nobody. */
+export function splitShares(text) {
+  try {
+    const o = JSON.parse(text || '{}');
+    const out = {};
+    for (const [k, v] of Object.entries(o)) if (Number(v) > 0) out[k] = Number(v);
+    return out;
+  } catch (e) { return {}; }
+}
+
+/**
+ * Who owes what, per currency: {EUR: {userId: cents}} — positive = gets money back, negative = owes. An expense
+ * credits the payer and debits each participant by weight (whole cents; leftover cents go to the first participants
+ * in id order, so every device gets the same result). A payment ("settle") moves money from payer to receiver.
+ */
+export function splitBalances(rows) {
+  const out = {};
+  const add = (cur, u, c) => { if (!u) return; const b = out[cur] || (out[cur] = {}); b[u] = (b[u] || 0) + c; };
+  for (const r of rows) {
+    const cur = r.currency || 'EUR';
+    const cents = Math.round(Number(r.cents) || 0);
+    if (!cents || !r.paid_by) continue;
+    if (r.kind === 'settle') { add(cur, r.paid_by, cents); add(cur, r.to_user, -cents); continue; }
+    const shares = splitShares(r.shares);
+    const ids = Object.keys(shares).sort();
+    if (!ids.length) continue;
+    const total = ids.reduce((n, k) => n + shares[k], 0);
+    const parts = ids.map((k) => Math.floor((cents * shares[k]) / total));
+    let left = cents - parts.reduce((n, p) => n + p, 0);
+    for (let i = 0; left > 0; i = (i + 1) % ids.length, left--) parts[i]++;
+    add(cur, r.paid_by, cents);
+    ids.forEach((k, i) => add(cur, k, -parts[i]));
+  }
+  for (const cur of Object.keys(out)) for (const u of Object.keys(out[cur])) if (!out[cur][u]) delete out[cur][u];
+  return out;
+}
+
+/** Fewest payments that settle one currency's balances: [{from, to, cents}], biggest first. */
+export function settleUp(balance) {
+  const pos = Object.entries(balance).filter(([, c]) => c > 0).map(([u, c]) => [u, c]).sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1));
+  const neg = Object.entries(balance).filter(([, c]) => c < 0).map(([u, c]) => [u, -c]).sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1));
+  const out = [];
+  let i = 0;
+  let j = 0;
+  while (i < pos.length && j < neg.length) {
+    const c = Math.min(pos[i][1], neg[j][1]);
+    out.push({ from: neg[j][0], to: pos[i][0], cents: c });
+    pos[i][1] -= c;
+    neg[j][1] -= c;
+    if (!pos[i][1]) i++;
+    if (!neg[j][1]) j++;
+  }
+  return out;
+}

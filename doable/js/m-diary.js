@@ -153,5 +153,5 @@ export default {
   hide() { if (openDay) close(); },
   open(uid) { if (uid && uid.startsWith('diary:')) { close(); show(uid.slice(6)); } },
   quick() { close(); show(L.today()); },
-  menu: () => [{ label: 'Export as a book (print / PDF)', action: printBook }],
+  menu: () => [{ label: '📖 Export as a book', sub: 'Print or save as PDF', action: printBook }],
 };

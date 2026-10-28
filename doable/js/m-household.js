@@ -2,13 +2,25 @@
 // single items with. Opened from the profile page and the side menu.
 import * as A from './account.js';
 import * as SP from './spaces.js';
+import * as Push from './push.js';
 import { app } from './ctx.js';
 import { h, card, row, header, prompt, toast, confirm, sheet, menu, input } from './ui.js';
 
 let openId = '';
 let busy = false;
+let log = null; // the activity log, loaded on first show
+const MODULE_OF = { grocery: 'grocery', grocery_lists: 'grocery', tasks: 'tasks', subtasks: 'tasks', categories: 'tasks', notes: 'notes', checklists: 'checklists',
+  checklist_items: 'checklists', dates: 'dates', wallet: 'wallet', shared_expenses: 'split' };
+function ago(t) {
+  const m = Math.round((Date.now() - t) / 60000);
+  if (m < 1) return 'just now';
+  if (m < 60) return m + ' min ago';
+  if (m < 1440) return Math.round(m / 60) + ' h ago';
+  return new Date(t).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+}
 
 function render(view) {
+  if (!log) SP.activityLog().then((l) => { log = l; app.refresh(); });
   const page = h('div.page');
   view.appendChild(page);
   if (!A.signedIn()) { page.appendChild(h('div.empty', 'Sign in to share with your household.')); return; }
@@ -31,6 +43,9 @@ function render(view) {
     row({ icon: '➕', title: homes.length ? 'Create another household' : 'Create a household', sub: 'Share groceries, to-dos, checklists and more with your family', onclick: createHousehold }),
     row({ icon: '🔗', title: 'Join with an invitation link', sub: 'Paste the link someone sent you', onclick: () => SP.pasteLink() }),
   ));
+  if (homes.length && 'Notification' in window && Notification.permission !== 'granted') {
+    page.appendChild(card(row({ icon: '🔔', title: 'Get notified', sub: 'When someone changes something, joins, or assigns you a task', onclick: () => Push.enable(true).then(() => app.refresh()) })));
+  }
   page.appendChild(h('p.muted.small', 'Everything you share is end-to-end encrypted: only the members can read it — not Doable, not Google.'));
 
   const pairs = SP.list().filter((s) => s.kind === 'share');
@@ -65,6 +80,14 @@ function detail(page, sp) {
   }
   people.appendChild(row({ icon: '➕', title: 'Invite someone', sub: 'By link — WhatsApp, SMS, email…', onclick: () => inviteSomeone(sp) }));
   page.appendChild(people);
+
+  const acts = (log || []).filter((e) => e.space === sp.id).slice(0, 25);
+  page.appendChild(header('Recent activity'));
+  page.appendChild(card(acts.length ? acts.map((e) => {
+    const m = sp.members.find((x) => x.user_id === e.by);
+    return row({ icon: A.avatar(m || { name: e.name }, 30), title: e.name + ' ' + e.text, sub: ago(e.at),
+      onclick: MODULE_OF[e.table] ? () => app.go(MODULE_OF[e.table], ['tasks', 'notes', 'dates', 'wallet'].includes(e.table) ? e.uid : undefined) : null });
+  }) : row({ icon: '🕊', title: 'Nothing yet', sub: 'Changes by other members show up here' })));
 
   if (sp.kind === 'household') {
     page.appendChild(header('Shared in this household'));
@@ -136,5 +159,5 @@ export default {
   back: () => { openId = ''; app.refresh(); },
   render,
   open(id) { openId = id; },
-  menu: () => [{ label: '↻ Refresh', action: async () => { await SP.refresh(); await SP.round(); app.refresh(); } }],
+  menu: () => [{ label: '🔄 Refresh', action: async () => { await SP.refresh(); await SP.round(); app.refresh(); } }],
 };

@@ -56,6 +56,7 @@ export const ICONS = {
   close: 'M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z',
   flag: 'M14.4 6 14 4H5v17h2v-7h5.6l.4 2h7V6z',
   home: 'M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z',
+  split: 'M11.8 10.9c-2.27-.59-3-1.2-3-2.15 0-1.09 1.01-1.85 2.7-1.85 1.78 0 2.44.85 2.5 2.1h2.21c-.07-1.72-1.12-3.3-3.21-3.81V3h-3v2.16c-1.94.42-3.5 1.68-3.5 3.61 0 2.31 1.91 3.46 4.7 4.13 2.5.6 3 1.48 3 2.41 0 .69-.49 1.79-2.7 1.79-2.06 0-2.87-.92-2.98-2.1h-2.2c.12 2.19 1.76 3.42 3.68 3.83V21h3v-2.15c1.95-.37 3.5-1.5 3.5-3.55 0-2.84-2.43-3.81-4.7-4.4z',
   person: 'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z',
   chart: 'M19 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zM9 17H7v-7h2v7zm4 0h-2V7h2v10zm4 0h-2v-4h2v4z',
 };
@@ -100,16 +101,48 @@ export function sheet({ title, body, buttons = [], wide = false, onClose, dismis
   return handle;
 }
 
-/** Action menu: items [{label, action, danger, checked}] */
-export function menu(title, items) {
-  const s = sheet({
-    title,
-    body: h('div.menu', items.filter(Boolean).map((it) => h('button.menu-item' + (it.danger ? '.danger' : ''), {
-      type: 'button',
-      onclick: () => { s.close(); it.action(); },
-    }, it.label, it.checked ? h('span.check', '✓') : null))),
-    buttons: [{ label: 'Cancel' }],
-  });
+/**
+ * Action menu. items: [{label, action, icon?, sub?, danger?, checked?, disabled?}], '-' for a divider, null skipped.
+ * A leading emoji in a label becomes its icon. Destructive items go last, below a divider. On wide screens with an
+ * `anchor` (e.g. the ⋮ button) it opens as a dropdown next to it; otherwise as a sheet from the bottom.
+ */
+const EMOJI = /^(\p{Extended_Pictographic}(?:\uFE0F|\u200D\p{Extended_Pictographic}|\p{Emoji_Modifier})*|[↗↩✓⚑●⋯↻])\s+/u;
+export function menu(title, items, { anchor = null } = {}) {
+  const list = items.filter((x) => x === '-' || (x && x.label));
+  const safe = list.filter((x) => x === '-' || !x.danger);
+  const danger = list.filter((x) => x !== '-' && x.danger);
+  const ordered = [...safe, ...(danger.length && safe.some((x) => x !== '-') ? ['-'] : []), ...danger]
+    .filter((x, i, a) => x !== '-' || (i > 0 && i < a.length - 1 && a[i - 1] !== '-'));
+  let close;
+  const body = h('div.menu', { role: 'menu' }, ordered.map((it) => {
+    if (it === '-') return h('div.menu-sep', { role: 'separator' });
+    const m = EMOJI.exec(it.label);
+    const ic = it.icon || (m ? m[1] : null);
+    const label = m && !it.icon ? it.label.slice(m[0].length) : it.label;
+    return h('button.menu-item' + (it.danger ? '.danger' : '') + (it.disabled ? '.disabled' : ''), {
+      type: 'button', role: 'menuitem', disabled: !!it.disabled,
+      onclick: () => { close(); it.action(); },
+    }, h('span.menu-icon', ic && ICONS[ic] ? icon(ic) : ic || ''), h('span.menu-text', h('span.menu-label', label), it.sub ? h('span.menu-sub', it.sub) : null),
+    it.checked ? h('span.check', '✓') : null);
+  }));
+  if (anchor && matchMedia('(min-width: 700px)').matches) {
+    const r = anchor.getBoundingClientRect();
+    const pop = h('div.popover', { role: 'dialog', 'aria-label': title }, title ? h('div.popover-title', title) : null, body);
+    const shade = h('div.popover-shade');
+    const handle = { close: () => { pop.remove(); shade.remove(); removeEventListener('keydown', esc); } };
+    const esc = (e) => { if (e.key === 'Escape') handle.close(); };
+    close = handle.close;
+    shade.addEventListener('click', close);
+    addEventListener('keydown', esc);
+    pop.style.top = Math.round(r.bottom + 6) + 'px';
+    pop.style.right = Math.max(8, Math.round(innerWidth - r.right)) + 'px';
+    document.body.append(shade, pop);
+    const first = pop.querySelector('.menu-item');
+    if (first) first.focus();
+    return handle;
+  }
+  const s = sheet({ title, body, buttons: [{ label: 'Cancel' }] });
+  close = s.close;
   return s;
 }
 

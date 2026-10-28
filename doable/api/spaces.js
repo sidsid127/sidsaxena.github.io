@@ -5,10 +5,11 @@
 // POST /api/spaces with {action, ...} and "Authorization: Bearer <session>".
 const crypto = require('crypto');
 const { q, sha, Fail, clean, signedIn, serve } = require('./_db.js');
+const { notify, keys: pushKeys } = require('./_notify.js');
 
-const MODULES = ['grocery', 'tasks', 'notes', 'checklists', 'dates', 'wallet', 'vault'];
+const MODULES = ['grocery', 'tasks', 'notes', 'checklists', 'dates', 'wallet', 'vault', 'split'];
 const TABLES = ['grocery_lists', 'grocery', 'grocery_history', 'shops', 'categories', 'tasks', 'subtasks', 'notes', 'checklists',
-  'checklist_items', 'dates', 'wallet', 'logins'];
+  'checklist_items', 'dates', 'wallet', 'logins', 'shared_expenses'];
 const MAX_ROW = 200000; // characters of encrypted data per row
 const newId = () => crypto.randomBytes(12).toString('hex');
 const str = (v, n) => (typeof v === 'string' ? v.slice(0, n) : '');
@@ -27,6 +28,14 @@ async function owner(spaceId, userId) {
 }
 
 const person = (r) => ({ user_id: String(r.user_id), email: r.email, name: r.name, picture: r.picture });
+const firstName = (u) => (u.name || u.email.split('@')[0]).split(' ')[0];
+async function others(spaceId, userId) {
+  return (await q(`select user_id from space_members where space_id = $1 and user_id <> $2`, [spaceId, userId])).rows.map((r) => r.user_id);
+}
+async function spaceName(spaceId) {
+  const r = (await q(`select kind, name from spaces where id = $1`, [spaceId])).rows[0];
+  return !r ? '' : r.kind === 'household' ? r.name : 'what you share';
+}
 
 const actions = {
   /** This device's public key (ECDH P-256, base64 of the 65-byte raw key). */
@@ -149,6 +158,10 @@ const actions = {
     if (email && email === user.email.toLowerCase()) throw new Fail(400, 'cannot_invite_yourself');
     await q(`insert into invites (id, space_id, from_user, email, token_hash, enc_key, wrapped_key, key_id) values ($1, $2, $3, $4, $5, $6, $7, $8)`,
       [id, b.id, user.id, email, b.token_hash, str(b.enc_key, 400), str(b.wrapped_key, 400), str(b.key_id, 80)]);
+    if (email) {
+      const to = (await q(`select id from users where lower(email) = $1`, [email])).rows[0];
+      if (to) await notify([to.id], { kind: 'invite', spaceId: b.id, fromUser: user.id, title: firstName(user) + ' invited you', body: 'Join ' + await spaceName(b.id) + ' in Doable' });
+    }
     return { id };
   },
 
@@ -204,6 +217,7 @@ const actions = {
     [i.space_id, user.id, str(b.wrapped_key, 400), str(b.key_id, 80)]);
     // A link without an email can only be used once; so can one with an email.
     await q(`update invites set status = 'accepted' where id = $1`, [i.id]);
+    await notify(await others(i.space_id, user.id), { kind: 'joined', spaceId: i.space_id, fromUser: user.id, title: firstName(user) + ' joined ' + await spaceName(i.space_id) });
     return { ok: true, space_id: i.space_id };
   },
 
@@ -232,9 +246,9 @@ const actions = {
   async pull(b, req) {
     const { user } = await signedIn(req);
     await member(b.id, user.id);
-    const r = await q(`select tbl, uid, m, seq, data from space_rows where space_id = $1 and seq > $2 order by seq limit 500`,
+    const r = await q(`select tbl, uid, m, seq, data, by_user from space_rows where space_id = $1 and seq > $2 order by seq limit 500`,
       [b.id, Number(b.since) || 0]);
-    const rows = r.rows.map((x) => ({ tbl: x.tbl, uid: x.uid, m: Number(x.m), data: x.data }));
+    const rows = r.rows.map((x) => ({ tbl: x.tbl, uid: x.uid, m: Number(x.m), data: x.data, by: x.by_user == null ? '' : String(x.by_user) }));
     const last = r.rows.length ? Number(r.rows[r.rows.length - 1].seq) : Number(b.since) || 0;
     return { rows, since: last, more: r.rows.length === 500 };
   },
@@ -248,12 +262,61 @@ const actions = {
     for (const x of rows) {
       if (!TABLES.includes(x.tbl) || typeof x.uid !== 'string' || x.uid.length > 80 || typeof x.data !== 'string' || x.data.length > MAX_ROW) continue;
       const r = await q(`insert into space_rows (space_id, tbl, uid, m, data, by_user) values ($1, $2, $3, $4, $5, $6)
-        on conflict (space_id, tbl, uid) do update set m = excluded.m, data = excluded.data, by_user = excluded.by_user, seq = nextval('space_seq')
+        on conflict (space_id, tbl, uid) do update set m = excluded.m, data = excluded.data, by_user = excluded.by_user, seq = nextval('space_seq'), at = now()
         where space_rows.m < excluded.m`, [b.id, x.tbl, x.uid, Math.floor(Number(x.m)) || 0, x.data, user.id]);
       stored += r.rowCount;
     }
+    if (stored && !b.quiet) {
+      const name = await spaceName(b.id);
+      await notify(await others(b.id, user.id), { kind: 'changed', spaceId: b.id, fromUser: user.id, title: firstName(user) + ' made changes',
+        body: name === 'what you share' ? 'In what you share with them' : 'In ' + name });
+    }
     return { stored };
   },
+};
+
+// ---------------------------------------------------------------- notifications
+
+/** A member tells another member something only devices know about (e.g. "assigned you a task"). */
+actions.notify = async function (b, req) {
+  const { user } = await signedIn(req);
+  await member(b.id, user.id);
+  await member(b.id, b.user_id);
+  const texts = { assigned: [firstName(user) + ' assigned you a task', 'In ' + await spaceName(b.id)],
+    settle: [firstName(user) + ' added a payment', 'Shared expenses in ' + await spaceName(b.id)] };
+  const t = texts[b.kind];
+  if (!t) throw new Fail(400, 'unknown_kind');
+  await notify([b.user_id], { kind: b.kind, spaceId: b.id, fromUser: user.id, title: t[0], body: t[1] });
+  return { ok: true };
+};
+
+/** My latest notices (id > since), newest last. */
+actions.notices = async function (b, req) {
+  const { user } = await signedIn(req);
+  const r = await q(`select id, kind, space_id, title, body, created from notices where user_id = $1 and id > $2 order by id desc limit 50`,
+    [user.id, Number(b.since) || 0]);
+  return { notices: r.rows.reverse().map((n) => ({ ...n, id: Number(n.id) })) };
+};
+
+actions.push_key = async function (b, req) {
+  await signedIn(req);
+  return { public_key: (await pushKeys()).publicKey };
+};
+
+/** A browser's push subscription (from PushManager.subscribe) for this person. */
+actions.push_subscribe = async function (b, req) {
+  const { user } = await signedIn(req);
+  const sub = b.subscription;
+  if (!sub || typeof sub.endpoint !== 'string' || !/^https:\/\//.test(sub.endpoint) || !sub.keys) throw new Fail(400, 'invalid_subscription');
+  await q(`insert into push_subs (endpoint, user_id, sub) values ($1, $2, $3) on conflict (endpoint) do update set user_id = excluded.user_id, sub = excluded.sub`,
+    [sub.endpoint.slice(0, 1000), user.id, JSON.stringify({ endpoint: sub.endpoint, keys: { p256dh: String(sub.keys.p256dh), auth: String(sub.keys.auth) } })]);
+  return { ok: true };
+};
+
+actions.push_unsubscribe = async function (b, req) {
+  const { user } = await signedIn(req);
+  await q(`delete from push_subs where endpoint = $1 and user_id = $2`, [str(b.endpoint, 1000), user.id]);
+  return { ok: true };
 };
 
 module.exports = serve(actions, 'spaces');

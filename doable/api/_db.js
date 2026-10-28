@@ -87,6 +87,26 @@ create table if not exists space_rows (
   primary key (space_id, tbl, uid)
 );
 create index if not exists space_rows_seq on space_rows(space_id, seq);
+alter table space_rows add column if not exists at timestamptz not null default now();
+create table if not exists notices (
+  id bigserial primary key,
+  user_id bigint not null references users(id) on delete cascade,
+  kind text not null,
+  space_id text,
+  from_user bigint,
+  title text not null,
+  body text not null default '',
+  created timestamptz not null default now()
+);
+create index if not exists notices_user on notices(user_id, id);
+create table if not exists push_subs (
+  endpoint text primary key,
+  user_id bigint not null references users(id) on delete cascade,
+  sub text not null,
+  created timestamptz not null default now()
+);
+alter table notices enable row level security;
+alter table push_subs enable row level security;
 alter table users enable row level security;
 alter table spaces enable row level security;
 alter table space_members enable row level security;

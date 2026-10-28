@@ -3,6 +3,7 @@
   "private": true,
   "description": "Doable web app: static files plus the api/ server part (Google sign-in renewal, accounts)",
   "dependencies": {
-    "pg": "8.13.1"
+    "pg": "8.13.1",
+    "web-push": "3.6.7"
   }
 }

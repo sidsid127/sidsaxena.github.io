@@ -168,12 +168,13 @@ export default {
     const l = openUid && S.get('checklists', openUid);
     if (!l) return [{ label: '📋 Paste a list', action: () => pasteDialog(null) }];
     return [
-      { label: 'Paste items from text', action: () => pasteDialog(l) },
-      { label: 'Share as text', action: () => shareText(l.title, l.title + '\n' + items(l.uid).map((i) => (i.done ? '☑ ' : '☐ ') + i.text).join('\n')) },
-      { label: 'Rename', action: async () => { const t = await prompt('Rename', l.title); if (t) S.put('checklists', { uid: l.uid, title: t }); } },
-      l.template ? { label: 'Start a checklist from this', action: () => { const uid = copyList(l.uid, l.title, false); templates = false; openUid = uid; app.refresh(); } }
-        : { label: 'Save as template', action: () => { copyList(l.uid, l.title, true); toast('Saved as a template'); } },
-      { label: 'Delete', danger: true, action: () => deleteList(l) },
+      { label: '📋 Paste items from text', action: () => pasteDialog(l) },
+      { label: '↗ Send as text', sub: 'WhatsApp, email…', action: () => shareText(l.title, l.title + '\n' + items(l.uid).map((i) => (i.done ? '☑ ' : '☐ ') + i.text).join('\n')) },
+      { label: '✏️ Rename', action: async () => { const t = await prompt('Rename', l.title); if (t) S.put('checklists', { uid: l.uid, title: t }); } },
+      ...SP.shareItems('checklists', 'checklists', l.uid, { people: true }),
+      l.template ? { label: '▶️ Start a checklist from this', action: () => { const uid = copyList(l.uid, l.title, false); templates = false; openUid = uid; app.refresh(); } }
+        : { label: '📑 Save as template', action: () => { copyList(l.uid, l.title, true); toast('Saved as a template'); } },
+      { label: '🗑 Delete checklist', danger: true, action: () => deleteList(l) },
     ];
   },
 };

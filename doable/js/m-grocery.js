@@ -349,13 +349,13 @@ export default {
   quick() { setTimeout(() => { const i = document.getElementById('grocery-input'); if (i) i.focus(); }, 50); },
   importText,
   menu: () => [
-    { label: '⋯ This list: share, rename, delete', action: () => { const l = S.get('grocery_lists', curList()); if (l) listMenu(l); } },
+    { label: '🛒 This list', sub: 'Share, rename, delete', action: () => { const l = S.get('grocery_lists', curList()); if (l) listMenu(l); } },
     { label: '📈 Prices & price history', action: priceOverview },
-    { label: 'Share list (WhatsApp, Messages…)', action: shareList },
-    { label: 'Add items from a shared list', action: importDialog },
-    { label: (st.askPrice ? '✓ ' : '') + 'Ask for the price when ticking off', action: () => { st.askPrice = !st.askPrice; S.saveSettings(); } },
-    { label: 'Currency for prices: ' + cur(), action: async () => { const c = await prompt('Currency', cur()); if (c) { st.homeCurrency = c.toUpperCase(); S.saveSettings(); app.refresh(); } } },
-    { label: 'Remove all items from this list', danger: true, action: async () => {
+    { label: '↗ Send list as text', sub: 'WhatsApp, Messages…', action: shareList },
+    { label: '📋 Add items from a pasted list', action: importDialog },
+    { label: '🏷 Ask for the price when ticking off', checked: !!st.askPrice, action: () => { st.askPrice = !st.askPrice; S.saveSettings(); } },
+    { label: '💱 Currency for prices', sub: cur(), action: async () => { const c = await prompt('Currency', cur()); if (c) { st.homeCurrency = c.toUpperCase(); S.saveSettings(); app.refresh(); } } },
+    { label: '🧹 Remove all items from this list', danger: true, action: async () => {
       const its = listItems();
       if (its.length && await confirm('Remove all ' + its.length + ' items?', null, 'Clear')) its.forEach((i) => S.del('grocery', i.uid));
     } },

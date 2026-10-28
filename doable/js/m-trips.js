@@ -348,9 +348,9 @@ export default {
     const t = openUid && S.get('trips', openUid);
     if (!t) return [{ label: '📊 Monthly business expense report', action: monthlyReport }];
     return [
-      { label: 'Edit trip (dates, currency, rates…)', action: () => editTrip(t) },
+      { label: '✏️ Edit trip', sub: 'Dates, currency, rates…', action: () => editTrip(t) },
       { label: '📄 Expense report for this trip', action: () => exportOptions('Expenses ' + t.name, expenses(t.uid), t) },
-      { label: 'Delete trip', danger: true, action: async () => {
+      { label: '🗑 Delete trip', danger: true, action: async () => {
         if (await confirm('Delete "' + t.name + '"?', 'Its expenses, bookings, journal and packing list are deleted too.', 'Delete')) { S.remove('trips', t.uid); openUid = null; app.refresh(); }
       } },
     ];

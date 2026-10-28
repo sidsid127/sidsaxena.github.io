@@ -3,6 +3,7 @@ import * as S from './store.js';
 import * as L from './logic.js';
 import { app } from './ctx.js';
 import * as SP from './spaces.js';
+import * as A from './account.js';
 import { h, icon, chip, menu, sheet, prompt, confirm, toast, header, card, empty, field, input, textarea, select, fmtDay, longPress } from './ui.js';
 
 const PRIORITY = ['None', 'Low', 'Medium', 'High'];
@@ -50,6 +51,7 @@ function matches(t) {
   if (st.smart === 'today' && (!t.due || t.due > today)) return false;
   if (st.smart === 'upcoming' && (!t.due || t.due <= today || L.daysFromToday(t.due) > 7)) return false;
   if (st.smart === 'calendar' && t.due !== calDay) return false;
+  if (st.smart === 'mine' && (!A.user() || t.assignee !== A.user().id)) return false;
   if (st.smart) return true;
   if (st.selSub) return t.category === st.selSub;
   if (st.selTop) { const k = cat(t.category); return t.category === st.selTop || (k && k.parent === st.selTop); }
@@ -79,7 +81,10 @@ function taskRow(t, subCounts) {
   const sc = subCounts[t.uid];
   if (sc) meta.push(h('span', `☑ ${sc[0]}/${sc[1]}`));
   if (t.notes) meta.push(h('span', '📝'));
-  if (SP.badge('tasks', t.uid)) meta.push(h('span.shared-tag', SP.spaceLabel(SP.spaceOf('tasks', t.uid))));
+  if (t.assignee) {
+    const who = SP.membersOf('tasks', t.uid).find((m) => m.user_id === t.assignee);
+    meta.push(h('span.assignee', '👤 ' + (A.user() && t.assignee === A.user().id ? 'You' : who ? (who.name || who.email).split(' ')[0] : 'Someone')));
+  } else if (SP.badge('tasks', t.uid)) meta.push(h('span.shared-tag', SP.spaceLabel(SP.spaceOf('tasks', t.uid))));
   if (t.category && (S.settings.smart || !S.settings.selTop)) {
     meta.push(h('span.tint', { style: { '--c': catColor(t.category) } }, '● ' + catPath(t.category)));
   }
@@ -128,6 +133,21 @@ function edit(t) {
   const catSel = select([['', 'No category'], ...cats().filter((k) => !k.parent).flatMap((k) => [[k.uid, k.name],
     ...cats().filter((s) => s.parent === k.uid).map((s) => [s.uid, '   ' + k.name + ' › ' + s.name])])], t.category || '');
   const notes = textarea(t.notes, { rows: 3, placeholder: 'Notes, links, details…' });
+  // Assign to a member when the task is shared (itself, or through its category)
+  const spaceNow = () => (S.get('tasks', uid) && S.get('tasks', uid).space) || (catSel.value && SP.spaceOf('categories', catSel.value)) || '';
+  const assign = select([['', 'Nobody']], t.assignee || '');
+  const assignRow = field('Assigned to', assign);
+  const fillAssign = () => {
+    const sp = SP.get(spaceNow());
+    assignRow.hidden = !sp;
+    if (!sp) return;
+    const cur = assign.value || t.assignee || '';
+    assign.textContent = '';
+    for (const [v, l] of [['', 'Nobody'], ...sp.members.map((m) => [m.user_id, m.user_id === A.user().id ? 'Me' : (m.name || m.email)])]) assign.appendChild(h('option', { value: v }, l));
+    assign.value = cur;
+  };
+  catSel.addEventListener('change', fillAssign);
+  fillAssign();
   const subs = S.where('subtasks', (s) => s.task === uid).sort((a, b) => a.position - b.position).map((s) => ({ ...s }));
   const subBox = h('div');
   const renderSubs = () => {
@@ -160,7 +180,8 @@ function edit(t) {
     const changedWhen = due.value !== (t.due || '') || newTime !== t.time;
     S.put('tasks', { uid, title: tt, due: due.value || '', time: newTime, repeat: due.value ? repeat.value : '', priority: +prio.value,
       category: catSel.value, notes: notes.value.trim(), snooze: changedWhen ? 0 : t.snooze || 0, created: t.created || Date.now(),
-      done: t.done || 0, done_at: t.done_at || 0, position: t.position || 0 });
+      done: t.done || 0, done_at: t.done_at || 0, position: t.position || 0, assignee: assignRow.hidden ? '' : assign.value });
+    if (!assignRow.hidden && assign.value && assign.value !== (t.assignee || '') && assign.value !== A.user().id) SP.tell(spaceNow(), assign.value, 'assigned');
     const keep = new Set();
     subs.forEach((s, i) => { if (s.text.trim()) keep.add(S.put('subtasks', { uid: s.uid, task: uid, text: s.text.trim(), done: s.done, position: i })); });
     for (const s of S.where('subtasks', (x) => x.task === uid)) if (!keep.has(s.uid)) S.del('subtasks', s.uid);
@@ -175,7 +196,7 @@ function edit(t) {
   sheet({
     title: isNew ? 'New task' : 'Edit task',
     body: [field('Task', title), h('div.form-inline', field('Due', due), field('Reminder', time)), field('Repeat', repeat),
-      h('div.form-inline', field('Priority', prio), field('Category', catSel)), field('Subtasks', subBox), field('Notes', notes),
+      h('div.form-inline', field('Priority', prio), field('Category', catSel)), assignRow, field('Subtasks', subBox), field('Notes', notes),
       h('p.kbd-hint', 'Reminders pop up while Doable is open (on iPhone, use the Android app or set an alarm for important ones).')],
     buttons,
   });
@@ -232,7 +253,9 @@ function render(view) {
   const chips = h('div.chips');
   const sel = (top, sub, smart) => { st.selTop = top; st.selSub = sub; st.smart = smart; S.saveSettings(); app.refresh(); };
   chips.appendChild(chip('All', { selected: !st.selTop && !st.smart, onclick: () => sel('', '', '') }));
-  for (const [id, label] of [['today', 'Today'], ['upcoming', 'Upcoming'], ['calendar', '📅 Calendar']]) {
+  const smarts = [['today', 'Today'], ['upcoming', 'Upcoming'], ['calendar', '📅 Calendar']];
+  if (SP.households().length) smarts.push(['mine', '👤 Assigned to me']);
+  for (const [id, label] of smarts) {
     chips.appendChild(chip(label, { selected: st.smart === id, color: '#1E9C9A', onclick: () => sel('', '', st.smart === id ? '' : id) }));
   }
   const tops = cats().filter((k) => !k.parent).sort((a, b) => a.name.localeCompare(b.name));
@@ -356,11 +379,11 @@ export default {
   quick() { setTimeout(() => { const i = document.getElementById('task-input'); if (i) i.focus(); }, 50); },
   prefill(text) { const i = document.getElementById('task-input'); if (i) { i.value = text; i.dispatchEvent(new Event('input')); i.focus(); } },
   menu: () => [
-    { label: S.settings.showDone ? 'Hide older completed tasks' : 'Show all completed tasks', action: () => { S.settings.showDone = !S.settings.showDone; S.saveSettings(); app.refresh(); } },
-    { label: 'New task (form)…', action: () => edit({ title: '', due: S.settings.smart === 'today' ? L.today() : '', time: -1, repeat: '', priority: 0,
+    { label: '✅ Show all completed tasks', checked: !!S.settings.showDone, action: () => { S.settings.showDone = !S.settings.showDone; S.saveSettings(); app.refresh(); } },
+    { label: '➕ New task with details…', action: () => edit({ title: '', due: S.settings.smart === 'today' ? L.today() : '', time: -1, repeat: '', priority: 0,
       category: S.settings.selSub || S.settings.selTop || '', notes: '' }) },
-    { label: 'New category', action: () => newCategory('') },
-    { label: 'Clear completed tasks', danger: true, action: async () => {
+    { label: '🏷 New category', action: () => newCategory('') },
+    { label: '🧹 Delete completed tasks', danger: true, action: async () => {
       const done = S.where('tasks', (t) => t.done);
       if (done.length && await confirm('Delete ' + done.length + ' completed task(s)?', null, 'Delete')) done.forEach((t) => S.remove('tasks', t.uid));
     } },

@@ -120,6 +120,6 @@ export default {
   tables: [],
   keepScroll: true,
   render,
-  menu: () => [{ label: '↻ Reload', action: () => { data = null; load(); } }],
+  menu: () => [{ label: '🔄 Reload', action: () => { data = null; load(); } }],
   hide() { data = null; },
 };
