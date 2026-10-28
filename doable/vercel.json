@@ -1,6 +1,7 @@
 {
   "functions": {
     "api/token.js": { "maxDuration": 10 },
-    "api/account.js": { "maxDuration": 15 }
+    "api/account.js": { "maxDuration": 15 },
+    "api/spaces.js": { "maxDuration": 15 }
   }
 }

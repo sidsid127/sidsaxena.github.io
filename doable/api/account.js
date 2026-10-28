@@ -2,7 +2,7 @@
 // page. Called as POST /api/account with {action, ...}; signed-in calls send "Authorization: Bearer <session>".
 // Identity comes from a Google access token that this server checks with Google (it must be issued to Doable's own
 // web or Android client). No user content ever comes here.
-const { q, sha, newToken } = require('./_db.js');
+const { q, sha, newToken, Fail, signedIn, clean } = require('./_db.js');
 
 const CLIENT_IDS = (process.env.GOOGLE_CLIENT_IDS || [
   '183622277089-4cmkatrev66hlel5sm4g5pv5k19s5l51.apps.googleusercontent.com', // web
@@ -19,7 +19,6 @@ const CONFIG_DEFAULTS = {
   announcement: '',       // a short message shown at the top of everyone's app
 };
 
-class Fail extends Error { constructor(status, code) { super(code); this.status = status; } }
 
 async function config() {
   const r = await q('select key, value from config');
@@ -47,18 +46,7 @@ async function googleUser(accessToken) {
   return { sub: info.sub, email: info.email, name: profile.name || '', picture: profile.picture || '' };
 }
 
-async function signedIn(req) {
-  const m = /^Bearer (.+)$/.exec(req.headers.authorization || '');
-  if (!m) throw new Fail(401, 'signed_out');
-  const r = await q(`update sessions set last_used = now() where token_hash = $1
-    returning user_id`, [sha(m[1])]);
-  if (!r.rows.length) throw new Fail(401, 'signed_out');
-  const u = await q(`update users set last_seen = now() where id = $1 returning *`, [r.rows[0].user_id]);
-  if (!u.rows.length) throw new Fail(401, 'signed_out');
-  return { user: u.rows[0], tokenHash: sha(m[1]) };
-}
 
-const clean = (s, n) => String(s == null ? '' : s).replace(/[\u0000-\u001f]/g, ' ').trim().slice(0, n);
 
 const actions = {
   async config() {
@@ -111,6 +99,14 @@ const actions = {
   /** Deletes the account, its sessions and everything else tied to it on this server. */
   async delete(b, req) {
     const { user } = await signedIn(req);
+    // Households this person owns go to their longest member instead of disappearing for everyone.
+    const owned = (await q(`select id from spaces where owner_id = $1`, [user.id])).rows;
+    for (const s of owned) {
+      const next = (await q(`select user_id from space_members where space_id = $1 and user_id <> $2 order by joined limit 1`, [s.id, user.id])).rows[0];
+      if (!next) continue;
+      await q(`update spaces set owner_id = $2 where id = $1`, [s.id, next.user_id]);
+      await q(`update space_members set role = 'owner' where space_id = $1 and user_id = $2`, [s.id, next.user_id]);
+    }
     await q(`delete from users where id = $1`, [user.id]);
     await q(`insert into events (kind) values ('deleted')`);
     return { ok: true };
@@ -132,6 +128,8 @@ const actions = {
       chose_ads: await one(`select count(*) n from users where ads_choice = 'ads'`),
       wants_pro: await one(`select count(*) n from users where ads_choice = 'pro' and plan <> 'pro'`),
       deleted: await one(`select count(*) n from events where kind = 'deleted'`),
+      households: await one(`select count(*) n from spaces where kind = 'household'`),
+      shares: await one(`select count(*) n from spaces where kind = 'share'`),
     };
     const platforms = (await q(`select platform, count(distinct user_id) n from sessions group by platform order by 2 desc`)).rows
       .map((r) => ({ platform: r.platform || 'unknown', users: Number(r.n) }));

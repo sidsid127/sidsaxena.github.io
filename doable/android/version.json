@@ -1,6 +1,6 @@
 {
- "versionCode": 19,
- "versionName": "7.1",
+ "versionCode": 20,
+ "versionName": "7.2",
  "apk": "android/Doable.apk",
- "notes": "• One-tap updates (Profile → Check for updates)\n• Doable accounts: sign in with Google, profile, sign out, delete account"
+ "notes": "• Fixes Doable not opening after installing 7.1\n• One-tap updates (Profile → Check for updates)\n• Doable accounts: sign in with Google, profile, sign out, delete account"
 }

@@ -46,10 +46,15 @@ final class AccountUi {
 
     private AccountUi() {}
 
+    /** Whether the phone has a network now; if Android won't say, assume yes (the request itself will tell). */
     static boolean online(Context c) {
-        ConnectivityManager cm = (ConnectivityManager) c.getSystemService(Context.CONNECTIVITY_SERVICE);
-        NetworkInfo n = cm == null ? null : cm.getActiveNetworkInfo();
-        return n != null && n.isConnected();
+        try {
+            ConnectivityManager cm = (ConnectivityManager) c.getSystemService(Context.CONNECTIVITY_SERVICE);
+            NetworkInfo n = cm == null ? null : cm.getActiveNetworkInfo();
+            return n == null || n.isConnected();
+        } catch (RuntimeException e) {
+            return true;
+        }
     }
 
     // ---------------------------------------------------------------- sign-in screen

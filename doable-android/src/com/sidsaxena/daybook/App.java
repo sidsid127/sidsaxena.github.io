@@ -18,30 +18,35 @@ public class App extends Application {
         return new File(c.getFilesDir(), "last_crash.txt");
     }
 
+    /** Writes the report for a failure (also ones Doable caught and survived), shown on the next start. */
+    static void record(Context c, Throwable e) {
+        try {
+            StringWriter sw = new StringWriter();
+            PrintWriter pw = new PrintWriter(sw);
+            String version = "?";
+            try {
+                version = c.getPackageManager().getPackageInfo(c.getPackageName(), 0).versionName;
+            } catch (Exception ignored) {
+            }
+            pw.println("Doable " + version + " · Android " + Build.VERSION.RELEASE + " (API " + Build.VERSION.SDK_INT + ") · "
+                    + Build.MANUFACTURER + " " + Build.MODEL + " · thread " + Thread.currentThread().getName());
+            e.printStackTrace(pw);
+            pw.flush();
+            FileOutputStream out = new FileOutputStream(crashFile(c));
+            out.write(sw.toString().getBytes("UTF-8"));
+            out.close();
+        } catch (Throwable ignored) {
+            // never fail while reporting a failure
+        }
+    }
+
     @Override
     public void onCreate() {
         super.onCreate();
         final Thread.UncaughtExceptionHandler previous = Thread.getDefaultUncaughtExceptionHandler();
         Thread.setDefaultUncaughtExceptionHandler(new Thread.UncaughtExceptionHandler() {
             public void uncaughtException(Thread t, Throwable e) {
-                try {
-                    StringWriter sw = new StringWriter();
-                    PrintWriter pw = new PrintWriter(sw);
-                    String version = "?";
-                    try {
-                        version = getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
-                    } catch (Exception ignored) {
-                    }
-                    pw.println("Doable " + version + " · Android " + Build.VERSION.RELEASE + " (API " + Build.VERSION.SDK_INT + ") · "
-                            + Build.MANUFACTURER + " " + Build.MODEL + " · thread " + t.getName());
-                    e.printStackTrace(pw);
-                    pw.flush();
-                    FileOutputStream out = new FileOutputStream(crashFile(App.this));
-                    out.write(sw.toString().getBytes("UTF-8"));
-                    out.close();
-                } catch (Throwable ignored) {
-                    // never fail while reporting a failure
-                }
+                record(App.this, e);
                 if (previous != null) previous.uncaughtException(t, e);
             }
         });

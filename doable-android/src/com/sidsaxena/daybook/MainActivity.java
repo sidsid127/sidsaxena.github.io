@@ -191,9 +191,18 @@ public class MainActivity extends Activity {
             new AlertDialog.Builder(this).setMessage(restored).setPositiveButton("OK", null).show();
         }
         if (savedInstanceState == null) handleIntent(getIntent());
-        accountChanged();
-        AccountUi.gate(this);
-        Updater.check(this, false);
+        // The account and update checks must never stop Doable from opening.
+        try {
+            accountChanged();
+            AccountUi.gate(this);
+        } catch (RuntimeException e) {
+            App.record(this, e);
+        }
+        try {
+            Updater.check(this, false);
+        } catch (RuntimeException e) {
+            App.record(this, e);
+        }
     }
 
     /** Profile or the server's switches changed: side menu, ad strip, announcement. */
