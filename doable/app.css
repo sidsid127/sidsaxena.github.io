@@ -304,3 +304,10 @@ textarea.field { resize: vertical; }
 .suggest { padding: 6px 12px; background: var(--bg); }
 .section.red { color: var(--overdue); }
 .check-row { display: flex; align-items: center; gap: 8px; padding: 8px 0; }
+
+/* ---------- turn & crop ---------- */
+.crop-tools { display: flex; gap: 8px; justify-content: center; margin-bottom: 10px; }
+.crop-wrap { display: flex; justify-content: center; background: #111; border-radius: 12px; padding: 8px; }
+.crop-canvas { touch-action: none; cursor: crosshair; max-width: 100%; }
+.viewer-edit { position: fixed; bottom: calc(24px + var(--safe-bottom)); left: 50%; transform: translateX(-50%); background: rgba(255,255,255,.92);
+  color: #222; border-radius: 22px; padding: 10px 18px; font-size: 15px; }

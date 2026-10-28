@@ -6,10 +6,13 @@ import { app } from './ctx.js';
 import * as P from './protect.js';
 import { h, header, card, row, empty, sheet, field, input, textarea, select, confirm, toast, fmtDay } from './ui.js';
 
-export const WALLET_TYPES = ['Loyalty card', 'ID card', 'Passport', 'Driving licence', 'Health insurance card', 'Insurance policy', 'Membership',
+export const WALLET_TYPES = ['Loyalty card', 'Credit / debit card', 'ID card', 'Passport', 'Driving licence', 'Health insurance card', 'Insurance policy', 'Membership',
   'Ticket / pass', 'Vehicle', 'Warranty', 'Document', 'Other'];
-const EMOJI = ['🏷', '🪪', '🛂', '🚗', '🏥', '📄', '🎫', '🎟', '🚙', '🧾', '📁', '💳'];
+const EMOJI = ['🏷', '💳', '🪪', '🛂', '🚗', '🏥', '📄', '🎫', '🎟', '🚙', '🧾', '📁', '💳'];
 export const walletEmoji = (type) => EMOJI[WALLET_TYPES.indexOf(type)] || '💳';
+const CARD = 'Credit / debit card';
+/** Cards show month / year only ("03/28"), like printed on them. */
+const validUntil = (w, opts) => (w.type === CARD ? w.expiry.slice(5, 7) + '/' + w.expiry.slice(2, 4) : fmtDay(w.expiry, opts));
 let unlocked = false;
 
 const mask = (n) => { const s = (n || '').replace(/ /g, ''); return s.length <= 4 ? s : '•••• ' + s.slice(-4); };
@@ -39,7 +42,7 @@ function render(view) {
     let sub = mask(w.number);
     if (w.expiry) {
       const d = L.daysBetween(today, w.expiry);
-      sub = [sub, d < 0 ? 'Expired ' + fmtDay(w.expiry) : d <= 60 ? `Expires in ${d} days` : 'Valid until ' + fmtDay(w.expiry, { day: 'numeric', month: 'short', year: 'numeric' })].filter(Boolean).join(' · ');
+      sub = [sub, d < 0 ? 'Expired ' + validUntil(w) : d <= 60 ? `Expires in ${d} days` : 'Valid until ' + validUntil(w, { day: 'numeric', month: 'short', year: 'numeric' })].filter(Boolean).join(' · ');
     }
     const pics = A.count('wallet', w.uid);
     if (pics) sub += ' · 📷' + (pics > 1 ? ' ' + pics : '');
@@ -62,7 +65,7 @@ function details(w) {
   };
   f('Number', w.number);
   f('Name on card', w.holder);
-  if (w.expiry) f('Valid until', fmtDay(w.expiry, { day: 'numeric', month: 'long', year: 'numeric' }));
+  if (w.expiry) f('Valid until', validUntil(w, { day: 'numeric', month: 'long', year: 'numeric' }));
   f('Notes', w.notes);
   if (w.barcode) {
     const svg = L.barcodeSvg(w.barcode, 80);
@@ -86,13 +89,28 @@ function edit(w) {
   const number = input(w.number || '', { autocapitalize: 'characters', autocomplete: 'off' });
   const holder = input(w.holder || '', { autocapitalize: 'words' });
   const expiry = input(w.expiry || '', { type: 'date' });
+  // Cards: month and year only; the expiry is the last day of that month.
+  const now = new Date().getFullYear();
+  const month = select([['', 'Month'], ...Array.from({ length: 12 }, (_, i) => [String(i + 1).padStart(2, '0'), String(i + 1).padStart(2, '0')])], (w.expiry || '').slice(5, 7));
+  const year = select([['', 'Year'], ...Array.from({ length: 21 }, (_, i) => [String(now - 5 + i), String(now - 5 + i)])], (w.expiry || '').slice(0, 4));
+  const cardExpiry = h('div.form-inline', month, h('span', ' / '), year);
+  const expiryValue = () => {
+    if (type.value !== CARD) return expiry.value || '';
+    if (!month.value || !year.value) return '';
+    const last = new Date(Number(year.value), Number(month.value), 0).getDate();
+    return `${year.value}-${month.value}-${String(last).padStart(2, '0')}`;
+  };
+  const expiryField = field('Valid until', [expiry, cardExpiry]);
+  const showExpiry = () => { expiry.hidden = type.value === CARD; cardExpiry.hidden = type.value !== CARD; };
+  type.addEventListener('change', showExpiry);
+  showExpiry();
   const barcode = input(w.barcode || '', { placeholder: 'Number printed under the barcode', autocomplete: 'off' });
   const notes = textarea(w.notes || '', { placeholder: 'Issuing authority, customer service number…' });
   let saved = false;
   const buttons = [{ label: 'Cancel' }, { label: 'Save', primary: true, action: () => {
     saved = true;
     S.put('wallet', { uid, type: type.value, title: title.value.trim() || type.value, number: number.value.trim(), holder: holder.value.trim(),
-      expiry: expiry.value || '', barcode: barcode.value.trim(), notes: notes.value.trim(), created: w.created || Date.now() });
+      expiry: expiryValue(), barcode: barcode.value.trim(), notes: notes.value.trim(), created: w.created || Date.now() });
     if (barcode.value.trim() && !L.barcodeSvg(barcode.value.trim())) toast('This barcode can\'t be drawn (letters, digits and symbols only)');
   } }];
   if (!isNew) buttons.unshift({ label: 'Delete', danger: true, action: async () => {
@@ -100,7 +118,7 @@ function edit(w) {
   } });
   sheet({ title: isNew ? 'New card or document' : 'Edit', dismissable: false,
     body: [field('Type', type), field('Name', title), field('Front & back (photo or scan)', A.strip('wallet', uid, { label: 'Front / back' })),
-      field('Card / document number', number), field('Name on card', holder), field('Valid until', expiry), field('Barcode', barcode), field('Notes', notes)],
+      field('Card / document number', number), field('Name on card', holder), expiryField, field('Barcode', barcode), field('Notes', notes)],
     buttons, onClose: () => { if (isNew && !saved) A.removeAll('wallet', uid); } });
 }
 

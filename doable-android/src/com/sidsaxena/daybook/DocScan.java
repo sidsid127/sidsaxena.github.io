@@ -27,6 +27,7 @@ import java.util.UUID;
 /**
  * Document scanner without any library: drag the four corners onto the edges of the card or page, and the
  * picture is straightened (perspective-corrected) and optionally turned into a clean black-and-white scan.
+ * The same screen crops ordinary photos ("Use whole photo" keeps all of it); ⟲ / ⟳ turn the picture.
  */
 final class DocScan {
     private DocScan() {}
@@ -36,27 +37,46 @@ final class DocScan {
     }
 
     static void crop(final MainActivity a, final File photo, final Done done) {
-        final Bitmap src = Attachments.decode(photo, 2400);
+        crop(a, photo, false, done);
+    }
+
+    /** {@code asPhoto}: an ordinary photo (crop or keep whole) rather than a document scan. */
+    static void crop(final MainActivity a, final File photo, final boolean asPhoto, final Done done) {
+        final Bitmap src = Attachments.decodeUpright(photo, 2400);
         if (src == null) return;
         final Dialog d = new Dialog(a, android.R.style.Theme_Black_NoTitleBar_Fullscreen);
         LinearLayout root = new LinearLayout(a);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(0xFF000000);
         TextView hint = new TextView(a);
-        hint.setText("Drag the four corners onto the edges of the document");
+        hint.setText(asPhoto ? "Drag the corners to crop — or use the whole photo" : "Drag the four corners onto the edges of the document");
         hint.setTextColor(0xFFFFFFFF);
         hint.setGravity(Gravity.CENTER);
         hint.setPadding(0, Util.dp(a, 14), 0, Util.dp(a, 6));
         root.addView(hint);
         final CropView view = new CropView(a, src);
         root.addView(view, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
+        LinearLayout turn = new LinearLayout(a);
+        turn.setGravity(Gravity.CENTER);
+        Button left = new Button(a), right = new Button(a);
+        left.setText("⟲ Turn left");
+        right.setText("Turn right ⟳");
+        turn.addView(left);
+        turn.addView(right);
+        root.addView(turn);
+        left.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) { view.turn(-90); }
+        });
+        right.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) { view.turn(90); }
+        });
         LinearLayout bar = new LinearLayout(a);
         bar.setGravity(Gravity.CENTER);
-        bar.setPadding(0, Util.dp(a, 8), 0, Util.dp(a, 16));
+        bar.setPadding(0, Util.dp(a, 4), 0, Util.dp(a, 16));
         Button cancel = new Button(a), color = new Button(a), bw = new Button(a);
         cancel.setText("Cancel");
-        color.setText("Save in colour");
-        bw.setText("Save as B&W");
+        color.setText(asPhoto ? "Crop" : "Save in colour");
+        bw.setText(asPhoto ? "Use whole photo" : "Save as B&W");
         bar.addView(cancel);
         bar.addView(color);
         bar.addView(bw);
@@ -67,7 +87,7 @@ final class DocScan {
         });
         View.OnClickListener save = new View.OnClickListener() {
             public void onClick(View v) {
-                Bitmap out = view.warp(v.getTag() != null);
+                Bitmap out = asPhoto && v.getTag() != null ? view.whole() : view.warp(!asPhoto && v.getTag() != null);
                 try {
                     String name = UUID.randomUUID() + ".jpg";
                     OutputStream os = new FileOutputStream(Attachments.file(a, name));
@@ -91,7 +111,7 @@ final class DocScan {
 
     /** Shows the photo with a draggable quadrilateral. */
     static final class CropView extends View {
-        private final Bitmap bmp;
+        private Bitmap bmp;
         private final float[] pts = new float[8]; // corners in bitmap coordinates: TL, TR, BR, BL
         private final Matrix toView = new Matrix(), toBmp = new Matrix();
         private final Paint line = new Paint(Paint.ANTI_ALIAS_FLAG), dot = new Paint(Paint.ANTI_ALIAS_FLAG), shade = new Paint();
@@ -100,9 +120,7 @@ final class DocScan {
         CropView(Context c, Bitmap b) {
             super(c);
             bmp = b;
-            float w = b.getWidth(), h = b.getHeight(), m = 0.08f;
-            float[] init = {w * m, h * m, w * (1 - m), h * m, w * (1 - m), h * (1 - m), w * m, h * (1 - m)};
-            System.arraycopy(init, 0, pts, 0, 8);
+            resetCorners();
             line.setColor(0xFFFF8A5B);
             line.setStrokeWidth(Util.dp(c, 2));
             line.setStyle(Paint.Style.STROKE);
@@ -110,10 +128,33 @@ final class DocScan {
             shade.setColor(0x88000000);
         }
 
-        @Override
-        protected void onSizeChanged(int w, int h, int ow, int oh) {
+        private void resetCorners() {
+            float w = bmp.getWidth(), h = bmp.getHeight(), m = 0.08f;
+            float[] init = {w * m, h * m, w * (1 - m), h * m, w * (1 - m), h * (1 - m), w * m, h * (1 - m)};
+            System.arraycopy(init, 0, pts, 0, 8);
+        }
+
+        /** Turns the picture by ±90°; the corners start again around it. */
+        void turn(int degrees) {
+            bmp = Attachments.rotate(bmp, degrees);
+            resetCorners();
+            fit(getWidth(), getHeight());
+            invalidate();
+        }
+
+        /** The whole picture, as turned. */
+        Bitmap whole() {
+            return bmp;
+        }
+
+        private void fit(int w, int h) {
             toView.setRectToRect(new RectF(0, 0, bmp.getWidth(), bmp.getHeight()), new RectF(0, 0, w, h), Matrix.ScaleToFit.CENTER);
             toView.invert(toBmp);
+        }
+
+        @Override
+        protected void onSizeChanged(int w, int h, int ow, int oh) {
+            fit(w, h);
         }
 
         @Override

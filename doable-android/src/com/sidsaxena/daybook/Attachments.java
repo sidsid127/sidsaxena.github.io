@@ -145,6 +145,27 @@ final class Attachments {
     }
 
     /** Decodes an image no larger than about maxSide pixels. */
+    /** Like decode(), turned the right way up (cameras often store the picture sideways with a rotation tag). */
+    static Bitmap decodeUpright(File f, int maxSide) {
+        Bitmap b = decode(f, maxSide);
+        if (b == null) return null;
+        int rotation = 0;
+        try {
+            int o = new ExifInterface(f.getPath()).getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL);
+            rotation = o == ExifInterface.ORIENTATION_ROTATE_90 ? 90 : o == ExifInterface.ORIENTATION_ROTATE_180 ? 180
+                    : o == ExifInterface.ORIENTATION_ROTATE_270 ? 270 : 0;
+        } catch (IOException ignored) {
+        }
+        return rotate(b, rotation);
+    }
+
+    static Bitmap rotate(Bitmap b, int degrees) {
+        if (degrees % 360 == 0) return b;
+        Matrix m = new Matrix();
+        m.postRotate(degrees);
+        return Bitmap.createBitmap(b, 0, 0, b.getWidth(), b.getHeight(), m, true);
+    }
+
     static Bitmap decode(File f, int maxSide) {
         BitmapFactory.Options o = new BitmapFactory.Options();
         o.inJustDecodeBounds = true;

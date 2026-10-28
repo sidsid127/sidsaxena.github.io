@@ -953,6 +953,20 @@ public class MainActivity extends Activity {
             });
             return;
         }
+        if (requestCode == REQ_CAMERA && pendingFiles != null) {
+            // A new photo: right way up, then crop or keep it whole.
+            final FilesPicked r = pendingFiles;
+            pendingFiles = null;
+            if (resultCode != RESULT_OK) return;
+            final java.io.File capture = new java.io.File(getFilesDir(), "capture.jpg");
+            DocScan.crop(this, capture, true, new DocScan.Done() {
+                public void onScanned(String file) {
+                    capture.delete();
+                    r.onFiles(java.util.Collections.singletonList(file));
+                }
+            });
+            return;
+        }
         if ((requestCode == REQ_CAMERA || requestCode == REQ_PICK) && pendingFiles != null) {
             FilesPicked r = pendingFiles;
             pendingFiles = null;

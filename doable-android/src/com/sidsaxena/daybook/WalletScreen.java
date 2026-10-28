@@ -38,7 +38,7 @@ import java.util.Locale;
 class WalletScreen extends Page {
 
     private static final int MENU_LOCK = 200;
-    private static final String[] TYPE_EMOJI = {"🏷", "🪪", "🛂", "🚗", "🏥", "📄", "🎫", "🎟", "🚙", "🧾", "📁", "💳"};
+    private static final String[] TYPE_EMOJI = {"🏷", "💳", "🪪", "🛂", "🚗", "🏥", "📄", "🎫", "🎟", "🚙", "🧾", "📁", "💳"};
 
     private boolean unlocked, prompted;
 
@@ -172,7 +172,7 @@ class WalletScreen extends Page {
             String sub = mask(i);
             if (i.expiry != 0) {
                 int days = Util.daysFromToday(i.expiry);
-                String exp = days < 0 ? "Expired " + date(i.expiry) : days <= 60 ? "Expires in " + days + " days" : "Valid until " + date(i.expiry);
+                String exp = days < 0 ? "Expired " + date(i.type, i.expiry) : days <= 60 ? "Expires in " + days + " days" : "Valid until " + date(i.type, i.expiry);
                 sub = sub.isEmpty() ? exp : sub + " · " + exp;
             }
             int pics = db.attachmentCount("wallet", i.id);
@@ -191,6 +191,53 @@ class WalletScreen extends Page {
 
     private static String date(long d) {
         return new SimpleDateFormat("d MMM yyyy", Locale.getDefault()).format(new Date(d));
+    }
+
+    static final String CARD = "Credit / debit card";
+
+    /** Cards only show month and year ("03/28"), like printed on them. */
+    private static String date(String type, long d) {
+        return CARD.equals(type) ? new SimpleDateFormat("MM/yy", Locale.getDefault()).format(new Date(d)) : date(d);
+    }
+
+    /** Month + year picker for cards; the expiry is the last day of that month. */
+    private void pickMonth(long current, final Runnable cleared, final DayPicked picked) {
+        Calendar c = Calendar.getInstance();
+        if (current != 0) c.setTimeInMillis(current);
+        LinearLayout box = new LinearLayout(a);
+        box.setOrientation(LinearLayout.HORIZONTAL);
+        box.setGravity(android.view.Gravity.CENTER);
+        final android.widget.NumberPicker month = new android.widget.NumberPicker(a), year = new android.widget.NumberPicker(a);
+        month.setMinValue(1);
+        month.setMaxValue(12);
+        month.setDisplayedValues(new String[]{"01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12"});
+        month.setValue(c.get(Calendar.MONTH) + 1);
+        int now = Calendar.getInstance().get(Calendar.YEAR);
+        year.setMinValue(now - 5);
+        year.setMaxValue(now + 15);
+        year.setValue(Math.max(now - 5, Math.min(now + 15, c.get(Calendar.YEAR))));
+        box.addView(month);
+        TextView slash = new TextView(a);
+        slash.setText("  /  ");
+        box.addView(slash);
+        box.addView(year);
+        new android.app.AlertDialog.Builder(a).setTitle("Valid until (month / year)").setView(box)
+                .setPositiveButton("OK", new DialogInterface.OnClickListener() {
+                    public void onClick(DialogInterface d, int w) {
+                        Calendar e = Calendar.getInstance();
+                        e.clear();
+                        e.set(year.getValue(), month.getValue() - 1, 1);
+                        picked.on(Store.dayOf(year.getValue(), month.getValue(), e.getActualMaximum(Calendar.DAY_OF_MONTH)));
+                    }
+                })
+                .setNeutralButton("No expiry", new DialogInterface.OnClickListener() {
+                    public void onClick(DialogInterface d, int w) { cleared.run(); }
+                })
+                .setNegativeButton("Cancel", null).show();
+    }
+
+    interface DayPicked {
+        void on(long day);
     }
 
     /** Card number with all but the last 4 characters hidden in the list. */
@@ -226,7 +273,7 @@ class WalletScreen extends Page {
         }
         field(box, "Number", i.number);
         field(box, "Name on card", i.holder);
-        if (i.expiry != 0) field(box, "Valid until", date(i.expiry));
+        if (i.expiry != 0) field(box, "Valid until", date(i.type, i.expiry));
         field(box, "Notes", i.notes);
 
         final String code = i.barcode.isEmpty() ? "" : i.barcode;
@@ -364,9 +411,23 @@ class WalletScreen extends Page {
         box.addView(Util.label(a, "Valid until"));
         final long[] expiry = {i.expiry};
         final Button exp = new Button(a, null, android.R.attr.borderlessButtonStyle);
-        exp.setText(i.expiry == 0 ? "No expiry date" : date(i.expiry));
+        exp.setText(i.expiry == 0 ? "No expiry date" : date(i.type, i.expiry));
         exp.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) {
+                if (CARD.equals(Store.WALLET_TYPES[type.getSelectedItemPosition()])) {
+                    pickMonth(expiry[0], new Runnable() {
+                        public void run() {
+                            expiry[0] = 0;
+                            exp.setText("No expiry date");
+                        }
+                    }, new DayPicked() {
+                        public void on(long day) {
+                            expiry[0] = day;
+                            exp.setText(date(CARD, day));
+                        }
+                    });
+                    return;
+                }
                 Calendar c = Calendar.getInstance();
                 if (expiry[0] != 0) c.setTimeInMillis(expiry[0]);
                 DatePickerDialog dp = new DatePickerDialog(a, new DatePickerDialog.OnDateSetListener() {

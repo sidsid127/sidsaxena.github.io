@@ -328,7 +328,7 @@ final class Store {
 
     // ---------------------------------------------------------------- wallet
 
-    static final String[] WALLET_TYPES = {"Loyalty card", "ID card", "Passport", "Driving licence", "Health insurance card",
+    static final String[] WALLET_TYPES = {"Loyalty card", "Credit / debit card", "ID card", "Passport", "Driving licence", "Health insurance card",
             "Insurance policy", "Membership", "Ticket / pass", "Vehicle", "Warranty", "Document", "Other"};
 
     static final class WalletItem {

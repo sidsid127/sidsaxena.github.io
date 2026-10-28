@@ -67,6 +67,14 @@ export async function pick(owner, ownerUid, { voice = false } = {}) {
   return new Promise((resolve) => {
     const take = async (accept, opts) => {
       const files = await pickFiles(accept, opts);
+      // One picture: turn / crop it first.
+      if (files.length === 1 && files[0].type.startsWith('image/') && files[0].type !== 'image/gif') {
+        const edited = await editImage(files[0]);
+        if (!edited) { resolve(0); return; }
+        await addFile(owner, ownerUid, new File([edited], files[0].name || 'Photo', { type: edited.type || 'image/jpeg' }));
+        resolve(1);
+        return;
+      }
       for (const f of files) await addFile(owner, ownerUid, f);
       resolve(files.length);
     };
@@ -143,8 +151,123 @@ export async function open(a) {
     return;
   }
   if (isPdf(a.file)) { window.open(u, '_blank'); return; }
-  const v = h('div.viewer', { onclick: () => v.remove() }, h('img', { src: u, alt: '' }));
+  const v = h('div.viewer', { onclick: () => v.remove() }, h('img', { src: u, alt: '' }),
+    h('button.viewer-edit', { type: 'button', onclick: async (e) => {
+      e.stopPropagation();
+      v.remove();
+      const blob = await S.files.get(a.file);
+      if (!blob) return;
+      const edited = await editImage(blob);
+      if (!edited) return;
+      // A new file name, so sync uploads the changed picture.
+      const fname = S.newUid() + '.jpg';
+      await S.files.put(fname, await shrink(new File([edited], 'photo.jpg', { type: 'image/jpeg' })));
+      S.put('attachments', { uid: a.uid, file: fname });
+      S.files.del(a.file).catch(() => {});
+      toast('Picture saved');
+    } }, '✏️ Turn / crop'));
   document.body.appendChild(v);
+}
+
+/**
+ * Turn and crop a picture: ⟲ / ⟳, drag the corners (or the middle to move the frame). Resolves with a JPEG blob,
+ * the original blob for "Use whole photo" without turning, or null when cancelled.
+ */
+export async function editImage(blob) {
+  let bmp;
+  try { bmp = await createImageBitmap(blob, { imageOrientation: 'from-image' }); } catch (e) { return blob; }
+  let src = document.createElement('canvas');
+  src.width = bmp.width; src.height = bmp.height;
+  src.getContext('2d').drawImage(bmp, 0, 0);
+  let turned = 0;
+  let rect = { x: 0.04, y: 0.04, w: 0.92, h: 0.92 }; // crop frame, as fractions of the picture
+  const view = h('canvas.crop-canvas');
+  const ctx = view.getContext('2d');
+  let box = { x: 0, y: 0, w: 1, h: 1 }; // where the picture is drawn on the view
+  const draw = () => {
+    const maxW = Math.min(640, window.innerWidth - 64), maxH = Math.max(240, window.innerHeight * 0.55);
+    const scale = Math.min(maxW / src.width, maxH / src.height);
+    const dpr = window.devicePixelRatio || 1;
+    view.style.width = Math.round(src.width * scale) + 'px';
+    view.style.height = Math.round(src.height * scale) + 'px';
+    view.width = Math.round(src.width * scale * dpr); view.height = Math.round(src.height * scale * dpr);
+    box = { x: 0, y: 0, w: view.width, h: view.height };
+    ctx.drawImage(src, 0, 0, view.width, view.height);
+    const r = { x: rect.x * view.width, y: rect.y * view.height, w: rect.w * view.width, h: rect.h * view.height };
+    ctx.fillStyle = 'rgba(0,0,0,.45)';
+    ctx.fillRect(0, 0, view.width, r.y);
+    ctx.fillRect(0, r.y + r.h, view.width, view.height - r.y - r.h);
+    ctx.fillRect(0, r.y, r.x, r.h);
+    ctx.fillRect(r.x + r.w, r.y, view.width - r.x - r.w, r.h);
+    ctx.strokeStyle = '#FF8A5B'; ctx.lineWidth = 2 * dpr; ctx.strokeRect(r.x, r.y, r.w, r.h);
+    ctx.fillStyle = '#fff';
+    for (const [cx, cy] of [[r.x, r.y], [r.x + r.w, r.y], [r.x, r.y + r.h], [r.x + r.w, r.y + r.h]]) {
+      ctx.beginPath(); ctx.arc(cx, cy, 9 * dpr, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    }
+  };
+  const turn = (dir) => {
+    const c = document.createElement('canvas');
+    c.width = src.height; c.height = src.width;
+    const g = c.getContext('2d');
+    g.translate(c.width / 2, c.height / 2);
+    g.rotate(dir * Math.PI / 2);
+    g.drawImage(src, -src.width / 2, -src.height / 2);
+    src = c;
+    turned = (turned + dir + 4) % 4;
+    rect = { x: 0.04, y: 0.04, w: 0.92, h: 0.92 };
+    draw();
+  };
+  // Dragging: a corner resizes, inside the frame moves it.
+  let drag = null;
+  const pos = (e) => { const b = view.getBoundingClientRect(); return { x: (e.clientX - b.left) / b.width, y: (e.clientY - b.top) / b.height, b }; };
+  view.addEventListener('pointerdown', (e) => {
+    const p = pos(e);
+    const near = 28 / p.b.width;
+    const corners = [['tl', rect.x, rect.y], ['tr', rect.x + rect.w, rect.y], ['bl', rect.x, rect.y + rect.h], ['br', rect.x + rect.w, rect.y + rect.h]];
+    const hit = corners.find(([, cx, cy]) => Math.abs(cx - p.x) < near && Math.abs(cy - p.y) < near * p.b.width / p.b.height);
+    if (hit) drag = { kind: hit[0] };
+    else if (p.x > rect.x && p.x < rect.x + rect.w && p.y > rect.y && p.y < rect.y + rect.h) drag = { kind: 'move', dx: p.x - rect.x, dy: p.y - rect.y };
+    if (drag) { view.setPointerCapture(e.pointerId); e.preventDefault(); }
+  });
+  view.addEventListener('pointermove', (e) => {
+    if (!drag) return;
+    const p = pos(e);
+    const cl = (v) => Math.max(0, Math.min(1, v));
+    const min = 0.05;
+    let { x, y, w, h: hh } = rect;
+    if (drag.kind === 'move') { x = Math.max(0, Math.min(1 - w, p.x - drag.dx)); y = Math.max(0, Math.min(1 - hh, p.y - drag.dy)); }
+    else {
+      const right = x + w, bottom = y + hh;
+      if (drag.kind[1] === 'l') { x = Math.min(cl(p.x), right - min); w = right - x; } else { w = Math.max(min, cl(p.x) - x); }
+      if (drag.kind[0] === 't') { y = Math.min(cl(p.y), bottom - min); hh = bottom - y; } else { hh = Math.max(min, cl(p.y) - y); }
+    }
+    rect = { x, y, w, h: hh };
+    draw();
+  });
+  const stop = () => { drag = null; };
+  view.addEventListener('pointerup', stop);
+  view.addEventListener('pointercancel', stop);
+  const out = (crop) => new Promise((resolve) => {
+    const r = crop ? rect : { x: 0, y: 0, w: 1, h: 1 };
+    const c = document.createElement('canvas');
+    c.width = Math.max(1, Math.round(r.w * src.width)); c.height = Math.max(1, Math.round(r.h * src.height));
+    c.getContext('2d').drawImage(src, r.x * src.width, r.y * src.height, c.width, c.height, 0, 0, c.width, c.height);
+    c.toBlob((b) => resolve(b), 'image/jpeg', 0.9);
+  });
+  return new Promise((resolve) => {
+    let result = null;
+    sheet({
+      title: 'Turn & crop', wide: true, dismissable: false,
+      body: [h('div.crop-tools', h('button.btn', { type: 'button', onclick: () => turn(-1) }, '⟲ Turn left'),
+        h('button.btn', { type: 'button', onclick: () => turn(1) }, 'Turn right ⟳')),
+      h('div.crop-wrap', view), h('p.muted', 'Drag the corners to crop, or the middle to move the frame.')],
+      buttons: [{ label: 'Cancel' },
+        { label: 'Use whole photo', action: async () => { result = turned ? await out(false) : blob; } },
+        { label: 'Crop', primary: true, action: async () => { result = await out(true); } }],
+      onClose: () => resolve(result),
+    });
+    requestAnimationFrame(draw);
+  });
 }
 
 /** Editable strip: tiles + "add" tile. Changes are saved immediately. */
