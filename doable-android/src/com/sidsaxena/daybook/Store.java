@@ -53,6 +53,27 @@ final class Store {
         return out;
     }
 
+    /** Every subtask, grouped by task id and in order, for showing them under their tasks. */
+    Map<Long, List<Subtask>> subtasksByTask() {
+        Map<Long, List<Subtask>> out = new HashMap<Long, List<Subtask>>();
+        Cursor c = r().rawQuery("SELECT _id, task, text, done FROM subtasks ORDER BY task, position, _id", null);
+        try {
+            while (c.moveToNext()) {
+                Subtask s = new Subtask();
+                s.id = c.getLong(0);
+                s.task = c.getLong(1);
+                s.text = c.getString(2);
+                s.done = c.getInt(3) != 0;
+                List<Subtask> l = out.get(s.task);
+                if (l == null) out.put(s.task, l = new ArrayList<Subtask>());
+                l.add(s);
+            }
+        } finally {
+            c.close();
+        }
+        return out;
+    }
+
     /** {done, total} per task id, for the "2/5" badge. */
     Map<Long, int[]> subtaskCounts() {
         Map<Long, int[]> out = new HashMap<Long, int[]>();

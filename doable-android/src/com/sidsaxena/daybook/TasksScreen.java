@@ -64,6 +64,7 @@ class TasksScreen extends Screen {
     private long calDay;      // selected day in the calendar
     private final Calendar calMonth = Calendar.getInstance();
     private Map<Long, int[]> subCounts = new HashMap<Long, int[]>();
+    private Map<Long, List<Store.Subtask>> subsByTask = new HashMap<Long, List<Store.Subtask>>();
     private final TextView quickHint;
     private final LinearLayout calendar;
 
@@ -341,6 +342,7 @@ class TasksScreen extends Screen {
         buildChips();
         updateInputHint();
         subCounts = st.subtaskCounts();
+        subsByTask = st.subtasksByTask();
         rows.clear();
         buildCalendar();
 
@@ -934,6 +936,41 @@ class TasksScreen extends Screen {
         return new int[]{lo, hi};
     }
 
+    /** An open task's subtasks, indented under its title; tapping one ticks it. */
+    private void bindSubtasks(LinearLayout box, Db.Task t) {
+        box.removeAllViews();
+        List<Store.Subtask> subs = t.done ? null : subsByTask.get(t.id);
+        box.setVisibility(subs == null || subs.isEmpty() ? View.GONE : View.VISIBLE);
+        if (subs == null) return;
+        for (final Store.Subtask sub : subs) {
+            LinearLayout line = new LinearLayout(a);
+            line.setGravity(android.view.Gravity.CENTER_VERTICAL);
+            line.setPadding(Util.dp(a, 12), 0, 0, 0);
+            line.setMinimumHeight(Util.dp(a, 36));
+            final CheckBox cb = new CheckBox(a);
+            cb.setChecked(sub.done);
+            cb.setFocusable(false);
+            cb.setScaleX(0.85f);
+            cb.setScaleY(0.85f);
+            TextView tx = new TextView(a);
+            tx.setText(sub.text);
+            tx.setTextSize(14);
+            tx.setTextColor(Util.color(a, sub.done ? R.color.muted : R.color.text));
+            if (sub.done) tx.setPaintFlags(tx.getPaintFlags() | Paint.STRIKE_THRU_TEXT_FLAG);
+            line.addView(cb);
+            line.addView(tx, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+            View.OnClickListener tick = new View.OnClickListener() {
+                public void onClick(View v) {
+                    st.setSubtaskDone(sub.id, !sub.done);
+                    reload();
+                }
+            };
+            cb.setOnClickListener(tick);
+            line.setOnClickListener(tick);
+            box.addView(line);
+        }
+    }
+
     private static boolean sameBlock(Object row, int priority) {
         return row instanceof Db.Task && !((Db.Task) row).done && ((Db.Task) row).priority == priority;
     }
@@ -986,6 +1023,7 @@ class TasksScreen extends Screen {
             if (!t.notes.isEmpty()) ex.append("📝");
             extras.setText(ex.toString().trim());
             extras.setVisibility(ex.length() == 0 ? View.GONE : View.VISIBLE);
+            bindSubtasks((LinearLayout) view.findViewById(R.id.subs), t);
             View prio = view.findViewById(R.id.prio);
             ImageView prioIcon = (ImageView) view.findViewById(R.id.prio_icon);
             TextView prioLabel = (TextView) view.findViewById(R.id.prio_label);

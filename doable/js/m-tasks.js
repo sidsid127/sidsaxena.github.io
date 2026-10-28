@@ -58,6 +58,16 @@ function matches(t) {
 const byImportance = (x, y) => (y.priority - x.priority) || (x.position - y.position)
   || ((x.due || '9999') < (y.due || '9999') ? -1 : (x.due || '9999') > (y.due || '9999') ? 1 : 0) || (y.created - x.created);
 
+/** An open task's subtasks, indented under its title; tapping one ticks it. */
+function subList(t) {
+  if (t.done) return null;
+  const subs = S.where('subtasks', (s) => s.task === t.uid).sort((a, b) => a.position - b.position);
+  if (!subs.length) return null;
+  return h('div.task-subs', subs.map((s) => h('label.task-sub' + (s.done ? '.done' : ''), { onclick: (e) => e.stopPropagation() },
+    h('input', { type: 'checkbox', checked: !!s.done, onchange: (e) => S.put('subtasks', { uid: s.uid, done: e.target.checked ? 1 : 0 }) }),
+    h('span', s.text))));
+}
+
 function taskRow(t, subCounts) {
   const today = L.today();
   const meta = [];
@@ -79,7 +89,7 @@ function taskRow(t, subCounts) {
   return h('div.task' + (t.done ? '.done' : ''),
     h('button.tick' + (t.done ? '.done' : '.p' + t.priority), { type: 'button', 'aria-label': t.done ? 'Mark not done' : 'Mark done',
       onclick: () => setDone(t, !t.done) }, t.done ? '✓' : ''),
-    h('div.task-body', { onclick: () => edit(t) }, h('div.task-title', t.title), meta.length ? h('div.task-meta', meta) : null),
+    h('div.task-body', { onclick: () => edit(t) }, h('div.task-title', t.title), meta.length ? h('div.task-meta', meta) : null, subList(t)),
     flag);
 }
 

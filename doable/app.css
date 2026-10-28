@@ -215,6 +215,11 @@ textarea.field { resize: vertical; }
 .task.done .task-title { text-decoration: line-through; color: var(--muted); }
 .task-meta { font-size: 13px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 0 10px; margin-top: 2px; }
 .task-meta .due-add { color: var(--add-due); }
+.task-subs { margin: 4px 0 0 14px; }
+.task-sub { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 14px; cursor: pointer; }
+.task-sub input { width: 17px; height: 17px; margin: 0; flex: none; accent-color: var(--primary); }
+.task-sub span { overflow-wrap: anywhere; }
+.task-sub.done span { text-decoration: line-through; color: var(--muted); }
 .flag { width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; color: var(--p0); flex: none; }
 .flag.p1 { color: var(--p1); } .flag.p2 { color: var(--p2); } .flag.p3 { color: var(--p3); }
 .cal { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; padding: 8px; }
