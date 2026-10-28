@@ -414,6 +414,10 @@ final class AccountUi {
 
         section(a, page, "Help");
         LinearLayout help = card(a);
+        String version = "Version " + BuildInfo.versionName(a);
+        row(a, help, "⬆️", "Check for updates", Updater.fromPlayStore(a) ? version + " · updated by Google Play" : version, new Runnable() {
+            public void run() { Updater.check(a, true); }
+        });
         row(a, help, "✉️", "Contact", Account.CONTACT, new Runnable() {
             public void run() {
                 a.startExternal(new Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:" + Account.CONTACT + "?subject=Doable")));

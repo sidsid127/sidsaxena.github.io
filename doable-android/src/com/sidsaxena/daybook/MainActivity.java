@@ -193,6 +193,7 @@ public class MainActivity extends Activity {
         if (savedInstanceState == null) handleIntent(getIntent());
         accountChanged();
         AccountUi.gate(this);
+        Updater.check(this, false);
     }
 
     /** Profile or the server's switches changed: side menu, ad strip, announcement. */
@@ -213,6 +214,10 @@ public class MainActivity extends Activity {
     /** Opens what a notification, widget, shortcut or share asked for. */
     private void handleIntent(Intent i) {
         if (i == null) return;
+        if (Updater.handle(this, i)) {
+            setIntent(new Intent(this, MainActivity.class));
+            return;
+        }
         if (GoogleDrive.handleRedirect(this, i.getData())) {
             setIntent(new Intent(this, MainActivity.class));
             return;
