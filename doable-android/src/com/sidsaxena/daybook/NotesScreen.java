@@ -344,10 +344,14 @@ class NotesScreen extends Screen {
     private void noteOptions(final Db.Note n) {
         new AlertDialog.Builder(a)
                 .setTitle(titleOf(n.body))
-                .setItems(new String[]{n.pinned ? "Unpin" : "Pin to top", "Colour…", "Move to folder…", "Delete"},
+                .setItems(new String[]{n.pinned ? "Unpin" : "Pin to top", "Colour…", "Move to folder…", "Delete", "Share…"},
                         new DialogInterface.OnClickListener() {
                             public void onClick(DialogInterface d, int which) {
-                                if (which == 0) {
+                                if (which == 4) {
+                                    SpacesUi.shareMenu(a, "notes", "notes", n.id, new Runnable() {
+                                        public void run() { reload(); }
+                                    });
+                                } else if (which == 0) {
                                     n.pinned = !n.pinned;
                                     db.saveNoteMeta(n);
                                     reload();
@@ -793,7 +797,7 @@ class NotesScreen extends Screen {
                 if (view == null) view = inf.inflate(R.layout.item_note, parent, false);
                 Db.Note n = (Db.Note) rows.get(position);
                 int files = db.attachmentCount("note", n.id);
-                ((TextView) view.findViewById(R.id.title)).setText((n.pinned ? "📌 " : "") + (n.locked ? "🔒 " : "") + titleOf(n.body));
+                ((TextView) view.findViewById(R.id.title)).setText((n.pinned ? "📌 " : "") + (n.locked ? "🔒 " : "") + SpacesUi.badge(a, "notes", n.id) + titleOf(n.body));
                 String stamp = n.deleted > 0 ? "Deleted " + Util.relativeStamp(a, n.deleted) : Util.relativeStamp(a, n.modified);
                 ((TextView) view.findViewById(R.id.preview)).setText(stamp + "   " + previewOf(n)
                         + (files > 0 ? "   📎 " + files : "") + (!n.folder.isEmpty() && folder.isEmpty() ? "   📁 " + n.folder : ""));

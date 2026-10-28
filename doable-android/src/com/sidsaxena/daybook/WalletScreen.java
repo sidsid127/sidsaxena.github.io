@@ -177,7 +177,7 @@ class WalletScreen extends Page {
             }
             int pics = db.attachmentCount("wallet", i.id);
             if (pics > 0) sub += " · 📷" + (pics > 1 ? " " + pics : "");
-            LinearLayout r = row(card, emoji(i.type), i.title, sub, null, new Runnable() {
+            LinearLayout r = row(card, emoji(i.type), SpacesUi.badge(a, "wallet", i.id) + i.title, sub, null, new Runnable() {
                 public void run() { details(i); }
             }, new Runnable() {
                 public void run() { edit(i, null); }
@@ -453,6 +453,9 @@ class WalletScreen extends Page {
         code.setHint("Leave empty if none");
         box.addView(code);
 
+        if (i.id != 0 && Account.signedIn(a)) box.addView(SpacesUi.shareRow(a, "wallet", "wallet", i.id, new Runnable() {
+            public void run() { render(); }
+        }));
         box.addView(Util.label(a, "Notes"));
         final EditText notes = Util.field(a, i.notes);
         notes.setHint("Issuing authority, customer service number…");

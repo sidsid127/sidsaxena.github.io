@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.sidsaxena.daybook"
-    android:versionCode="20"
-    android:versionName="7.2">
+    android:versionCode="21"
+    android:versionName="7.3">
 
     <uses-sdk android:minSdkVersion="23" android:targetSdkVersion="34" />
 
@@ -38,6 +38,13 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- Household invitation links (https://doable-sid.vercel.app/?join=…) open Doable when it's installed -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="doable-sid.vercel.app" android:path="/" />
             </intent-filter>
             <!-- "Share → Doable" from other apps -->
             <intent-filter android:label="Doable">

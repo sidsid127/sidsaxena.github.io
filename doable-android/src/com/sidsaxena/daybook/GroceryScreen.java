@@ -36,7 +36,7 @@ import java.util.Set;
 class GroceryScreen extends Screen {
 
     private static final int MENU_CLEAR = 120, MENU_SHARE = 121, MENU_IMPORT = 122, MENU_ASK_PRICE = 123,
-            MENU_RENAME_LIST = 124, MENU_DELETE_LIST = 125, MENU_PRICES = 126;
+            MENU_RENAME_LIST = 124, MENU_DELETE_LIST = 125, MENU_PRICES = 126, MENU_HOUSE = 127;
     private static final long UNDO_MS = 6000;
 
     private final LinearLayout content, shopChips, listChips;
@@ -541,7 +541,7 @@ class GroceryScreen extends Screen {
         for (final Store.GList l : lists) {
             int count = 0;
             for (Db.Item it : db.items()) if (it.list == l.id) count++;
-            TextView c = Util.chip(a, l.name + (count > 0 ? " (" + count + (count == 1 ? " item)" : " items)") : ""),
+            TextView c = Util.chip(a, SpacesUi.badge(a, "grocery_lists", l.id) + l.name + (count > 0 ? " (" + count + (count == 1 ? " item)" : " items)") : ""),
                     Util.color(a, R.color.primary), l.id == selList);
             c.setOnClickListener(new View.OnClickListener() {
                 public void onClick(View v) {
@@ -892,6 +892,7 @@ class GroceryScreen extends Screen {
 
     @Override
     void onCreateMenu(Menu menu) {
+        menu.add(0, MENU_HOUSE, 0, "Share this list with household / person…");
         menu.add(0, MENU_PRICES, 0, "Prices & price history");
         menu.add(0, MENU_SHARE, 1, "Share list (WhatsApp, Messages…)");
         menu.add(0, MENU_IMPORT, 2, "Add items from a shared list");
@@ -910,6 +911,14 @@ class GroceryScreen extends Screen {
     @Override
     boolean onMenu(int id) {
         switch (id) {
+            case MENU_HOUSE:
+                SpacesUi.shareMenu(a, "grocery", "grocery_lists", selList, new Runnable() {
+                    public void run() {
+                        selList = a.prefs.getLong("selList", selList);
+                        reload();
+                    }
+                });
+                return true;
             case MENU_PRICES:
                 priceOverview();
                 return true;

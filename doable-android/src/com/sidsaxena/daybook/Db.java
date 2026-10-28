@@ -113,7 +113,7 @@ public class Db extends SQLiteOpenHelper {
     }
 
     private Db(Context context) {
-        super(context, "daybook.db", null, 7);
+        super(context, "daybook.db", null, 8);
         setWriteAheadLoggingEnabled(true); // readers (screens) keep working while sync writes
     }
 
@@ -131,6 +131,7 @@ public class Db extends SQLiteOpenHelper {
         createV5(db);
         createV6(db);
         createV7(db);
+        createV8(db);
     }
 
     /** A crash during a sync could leave the "applying" flag set; clear it. */
@@ -161,6 +162,15 @@ public class Db extends SQLiteOpenHelper {
         if (oldVersion < 5) createV5(db);
         if (oldVersion < 6) createV6(db);
         if (oldVersion < 7) createV7(db);
+        if (oldVersion < 8) createV8(db);
+    }
+
+    /** Tables whose rows can be shared with a household or a person ("space" = the space's id, '' = private). */
+    static final String[] SHAREABLE = {"grocery_lists", "categories", "tasks", "notes", "checklists", "dates", "wallet"};
+
+    /** Version 8: households and sharing. */
+    static void createV8(SQLiteDatabase db) {
+        for (String t : SHAREABLE) db.execSQL("ALTER TABLE " + t + " ADD COLUMN space TEXT NOT NULL DEFAULT ''");
     }
 
     /** Version 7: urgent grocery items, and the last quantity used for each product. */

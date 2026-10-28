@@ -210,6 +210,7 @@ final class AccountUi {
                         hideWelcome();
                         Toast.makeText(a, (fresh ? "Welcome to Doable, " : "Welcome back, ") + Account.displayName(a).split(" ")[0], Toast.LENGTH_SHORT).show();
                         a.accountChanged();
+                        a.syncSpacesSoon();
                         if (SyncEngine.enabled(a)) SyncUi.syncNow(a, false);
                     }
                 });
@@ -375,6 +376,9 @@ final class AccountUi {
                 });
             }
         });
+        row(a, acc, "🏠", "Household & sharing", Spaces.households(a).isEmpty() ? "Share lists with your family" : householdNames(a), new Runnable() {
+            public void run() { SpacesUi.show(a, null); }
+        });
         row(a, acc, "🔄", "Sync with Google", SyncUi.status(a), new Runnable() {
             public void run() { d.dismiss(); SyncUi.show(a); }
         });
@@ -455,6 +459,12 @@ final class AccountUi {
         });
         del.setTextColor(Util.color(a, R.color.overdue));
         page.addView(danger);
+    }
+
+    private static String householdNames(Context c) {
+        StringBuilder sb = new StringBuilder();
+        for (JSONObject s : Spaces.households(c)) sb.append(sb.length() == 0 ? "" : ", ").append(s.optString("name"));
+        return sb.toString();
     }
 
     // ---------------------------------------------------------------- sign out / delete
@@ -585,7 +595,7 @@ final class AccountUi {
         a.startExternal(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
     }
 
-    private static TextView text(Context c, String s, int sp, int color, boolean bold) {
+    static TextView text(Context c, String s, int sp, int color, boolean bold) {
         TextView t = new TextView(c);
         t.setText(s);
         t.setTextSize(sp);
@@ -594,7 +604,7 @@ final class AccountUi {
         return t;
     }
 
-    private static LinearLayout card(Context c) {
+    static LinearLayout card(Context c) {
         LinearLayout l = new LinearLayout(c);
         l.setOrientation(LinearLayout.VERTICAL);
         l.setBackgroundResource(R.drawable.card_bg);
@@ -604,14 +614,14 @@ final class AccountUi {
         return l;
     }
 
-    private static void section(Context c, LinearLayout page, String title) {
+    static void section(Context c, LinearLayout page, String title) {
         TextView t = text(c, title.toUpperCase(), 12, R.color.muted, true);
         t.setPadding(Util.dp(c, 6), Util.dp(c, 16), 0, Util.dp(c, 6));
         page.addView(t);
     }
 
     /** A tappable row with an emoji, a title and a muted line under it; returns the title view. */
-    private static TextView row(Context c, LinearLayout card, String emoji, String title, String sub, final Runnable onClick) {
+    static TextView row(Context c, LinearLayout card, String emoji, String title, String sub, final Runnable onClick) {
         if (card.getChildCount() > 0) {
             View line = new View(c);
             line.setBackgroundColor(Util.color(c, R.color.divider));

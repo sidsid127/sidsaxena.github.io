@@ -117,7 +117,7 @@ class ChecklistsScreen extends Page {
         for (final Store.Checklist l : lists) {
             String sub = templates ? l.total + " item" + (l.total == 1 ? "" : "s")
                     : l.done + " of " + l.total + " done" + (l.trip != 0 ? " · trip packing list" : "");
-            row(card, templates ? "📋" : l.total > 0 && l.done == l.total ? "✅" : "☑", l.title, sub, null, new Runnable() {
+            row(card, templates ? "📋" : l.total > 0 && l.done == l.total ? "✅" : "☑", SpacesUi.badge(a, "checklists", l.id) + l.title, sub, null, new Runnable() {
                 public void run() { show(l); }
             }, new Runnable() {
                 public void run() { listActions(l); }
@@ -313,9 +313,12 @@ class ChecklistsScreen extends Page {
     private void listActions(final Store.Checklist l) {
         new AlertDialog.Builder(a)
                 .setTitle(l.title)
-                .setItems(new String[]{"Open", "Duplicate", "Delete"}, new DialogInterface.OnClickListener() {
+                .setItems(new String[]{"Open", "Duplicate", "Delete", "Share…"}, new DialogInterface.OnClickListener() {
                     public void onClick(DialogInterface d, int which) {
-                        if (which == 0) show(l);
+                        if (which == 3) SpacesUi.shareMenu(a, "checklists", "checklists", l.id, new Runnable() {
+                            public void run() { render(); }
+                        });
+                        else if (which == 0) show(l);
                         else if (which == 1) {
                             st.copyChecklist(l.id, l.title + " (copy)", l.template, 0);
                             render();

@@ -226,4 +226,24 @@ final class Util {
                 .setNegativeButton("Cancel", null)
                 .show();
     }
+
+    /** First column of the first row as text, or null. */
+    static String queryString(android.database.sqlite.SQLiteDatabase db, String sql, String... args) {
+        android.database.Cursor c = db.rawQuery(sql, args);
+        try {
+            return c.moveToFirst() && !c.isNull(0) ? c.getString(0) : null;
+        } finally {
+            c.close();
+        }
+    }
+
+    /** First column of the first row as a number, or null. */
+    static Long queryLong(android.database.sqlite.SQLiteDatabase db, String sql, String... args) {
+        android.database.Cursor c = db.rawQuery(sql, args);
+        try {
+            return c.moveToFirst() && !c.isNull(0) ? c.getLong(0) : null;
+        } finally {
+            c.close();
+        }
+    }
 }

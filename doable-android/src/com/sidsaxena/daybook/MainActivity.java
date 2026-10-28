@@ -223,6 +223,13 @@ public class MainActivity extends Activity {
     /** Opens what a notification, widget, shortcut or share asked for. */
     private void handleIntent(Intent i) {
         if (i == null) return;
+        android.net.Uri d = i.getData();
+        if (d != null && "https".equals(d.getScheme()) && d.getQueryParameter("join") != null && d.getFragment() != null) {
+            prefs.edit().putString("pendingJoin", d.getQueryParameter("join") + "#" + d.getFragment()).apply();
+            setIntent(new Intent(this, MainActivity.class));
+            handlePendingJoin();
+            return;
+        }
         if (Updater.handle(this, i)) {
             setIntent(new Intent(this, MainActivity.class));
             return;
@@ -399,10 +406,77 @@ public class MainActivity extends Activity {
         }
     };
 
+    // ---------------------------------------------------------------- households & sharing
+
+    private final java.util.concurrent.atomic.AtomicBoolean spacing = new java.util.concurrent.atomic.AtomicBoolean();
+    private long spacesRefreshed;
+    private final Runnable spacesTick = new Runnable() {
+        public void run() {
+            syncHandler.postDelayed(this, 20000);
+            runSpaces(false);
+        }
+    };
+
+    /** Shared rows soon (after a change here); the regular tick runs every 20 s while Doable is open. */
+    void syncSpacesSoon() {
+        syncHandler.postDelayed(new Runnable() {
+            public void run() { runSpaces(false); }
+        }, 1500);
+    }
+
+    private void runSpaces(boolean full) {
+        if (!Account.signedIn(this) || !AccountUi.online(this) || !spacing.compareAndSet(false, true)) {
+            handlePendingJoin();
+            return;
+        }
+        final boolean refresh = full || System.currentTimeMillis() - spacesRefreshed > 120000;
+        if (refresh) spacesRefreshed = System.currentTimeMillis();
+        final Context app = getApplicationContext();
+        new Thread(new Runnable() {
+            public void run() {
+                boolean got = false;
+                try {
+                    if (refresh) Spaces.refresh(app);
+                    got = Spaces.round(app);
+                } catch (Exception e) {
+                    // offline: next tick
+                }
+                spacing.set(false);
+                final boolean changed = got;
+                runOnUiThread(new Runnable() {
+                    public void run() {
+                        if (isFinishing()) return;
+                        if (changed) reloadCurrent();
+                        if (refresh) {
+                            buildDrawer();
+                            SpacesUi.promptInvites(MainActivity.this);
+                        }
+                        handlePendingJoin();
+                    }
+                });
+            }
+        }).start();
+    }
+
+    /** An invite link that opened Doable (kept until the person is signed in). */
+    private void handlePendingJoin() {
+        String join = prefs.getString("pendingJoin", null);
+        if (join == null || !Account.signedIn(this) || AccountUi.waiting()) return;
+        prefs.edit().remove("pendingJoin").apply();
+        int at = join.indexOf('#');
+        if (at > 0) SpacesUi.openLink(this, join.substring(0, at), join.substring(at + 1));
+    }
+
+    void reloadCurrent() {
+        if (current != null) current.onShow();
+    }
+
     @Override
     protected void onStart() {
         super.onStart();
         leavingForExternal = false;
+        syncHandler.removeCallbacks(spacesTick);
+        syncHandler.postDelayed(spacesTick, 1500);
         AccountUi.refreshSoon(this, 15 * 60000);
         syncHandler.removeCallbacks(syncTick);
         syncHandler.post(syncTick);
@@ -423,6 +497,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onStop() {
         super.onStop();
+        syncHandler.removeCallbacks(spacesTick);
         syncHandler.removeCallbacks(syncTick);
         if (authInProgress || isChangingConfigurations()) return;
         current.onStop();
@@ -479,6 +554,10 @@ public class MainActivity extends Activity {
                     AccountUi.showProfile(MainActivity.this);
                 }
             }));
+            int n = Spaces.incoming(this).size();
+            drawerAction(R.drawable.ic_home, "Household & sharing" + (n > 0 ? "  (" + n + " new)" : ""), new Runnable() {
+                public void run() { SpacesUi.show(MainActivity.this, null); }
+            });
             divider();
         }
         for (int i = 0; i < screens.length; i++) {

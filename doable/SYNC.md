@@ -65,13 +65,13 @@ from the passphrase and check it by decrypting. A wrong passphrase fails the GCM
 
 | table | columns (→ reference, ⓓ day) |
 | --- | --- |
-| categories | name, parent→categories, color |
-| tasks | title, done, due ⓓ, created, done_at, category→categories, priority, position, time, repeat, notes, snooze |
+| categories | name, parent→categories, color, space |
+| tasks | title, done, due ⓓ, created, done_at, category→categories, priority, position, time, repeat, notes, snooze, space |
 | subtasks | task→tasks, text, done, position |
 | log | text, ts |
-| notes | body, pinned, created, modified, color, folder, locked, deleted |
+| notes | body, pinned, created, modified, color, folder, locked, deleted, space |
 | shops | name, color |
-| grocery_lists | name |
+| grocery_lists | name, space |
 | grocery | name, shop→shops, done, created, qty ("2 kg", "1 pack"), list→grocery_lists, aisle, urgent |
 | grocery_history | name, shop→shops, uses, last_used, list→grocery_lists, qty (last quantity used) |
 | prices | name, shop→shops, cents, qty ("1 kg" = price per kg; older rows: the bought quantity), day ⓓ |
@@ -82,13 +82,15 @@ from the passphrase and check it by decrypting. A wrong passphrase fails the GCM
 | attachments | owner, owner_id→(see above), file, name, created |
 | habits | name, emoji, quit, target, days, remind, color, archived, created ⓓ |
 | habit_log | habit→habits, day ⓓ, count |
-| wallet | type, title, number, holder, expiry ⓓ, barcode, notes, created |
-| dates | title, kind, month, day, year, yearly, remind_days, notes, created |
-| checklists | title, trip→trips, template, created |
+| wallet | type, title, number, holder, expiry ⓓ, barcode, notes, created, space |
+| dates | title, kind, month, day, year, yearly, remind_days, notes, created, space |
+| checklists | title, trip→trips, template, created, space |
 | checklist_items | list→checklists, text, done, position |
 | logins | type, title, folder, url, user, password, number, holder, expiry, cvv, pin, notes, modified (passwords; uid = login id) |
 
 Locked notes are stored with their plain `body` and `locked: 1` — the document itself is encrypted.
+
+`space` = the household / share a row is shared in (`""` = private); see SHARING.md.
 
 ### uids
 

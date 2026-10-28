@@ -1,0 +1,5 @@
+[{
+  "relation": ["delegate_permission/common.handle_all_urls"],
+  "target": { "namespace": "android_app", "package_name": "com.sidsaxena.daybook",
+    "sha256_cert_fingerprints": ["F3:C6:AC:EA:BB:6A:EC:30:BF:DC:AF:1B:0D:71:A3:33:3A:E9:F7:B5:7A:47:BF:1C:BD:8A:08:62:AF:23:AD:34"] }
+}]

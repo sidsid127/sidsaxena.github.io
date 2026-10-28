@@ -331,7 +331,8 @@ function answerSheet(inv, onJoin, onReject) {
 const SEED = /^seed-/;
 /**
  * Puts a list / category / note / … into a space ('' = private again). Built-in starting rows (same uid on every
- * device) are first copied to a new uid, so sharing your "Groceries" list doesn't merge it with everyone's own.
+ * device) are copied to a new uid and their items moved there, so sharing your "Groceries" list doesn't merge it
+ * with everyone's own one.
  */
 export function setSpace(table, uid, space) {
   let id = uid;
@@ -342,7 +343,7 @@ export function setSpace(table, uid, space) {
       checklists: [['checklist_items', 'list']] }[table] || [];
     for (const [t, col] of kids) for (const r of S.where(t, (x) => x[col] === uid)) S.put(t, { uid: r.uid, [col]: id });
     if (table === 'grocery_lists' && S.settings.selList === uid) { S.settings.selList = id; S.saveSettings(); }
-    S.del(table, uid);
+    // The built-in row itself stays (empty) as your private one, like on Android.
   } else {
     S.put(table, { uid, space });
   }

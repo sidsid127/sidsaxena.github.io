@@ -212,7 +212,7 @@ class TasksScreen extends Screen {
         }
         for (final Db.Category k : categories) {
             if (k.parent != 0) continue;
-            chipsTop.addView(chip(k.name, k.color, selTop == k.id, new View.OnClickListener() {
+            chipsTop.addView(chip(SpacesUi.badge(a, "categories", k.id) + k.name, k.color, selTop == k.id, new View.OnClickListener() {
                 public void onClick(View v) { selectFilter(k.id, 0); }
             }, k));
         }
@@ -232,7 +232,7 @@ class TasksScreen extends Screen {
         }, null));
         for (final Db.Category k : categories) {
             if (k.parent != top.id) continue;
-            chipsSub.addView(chip(k.name, k.color, selSub == k.id, new View.OnClickListener() {
+            chipsSub.addView(chip(SpacesUi.badge(a, "categories", k.id) + k.name, k.color, selSub == k.id, new View.OnClickListener() {
                 public void onClick(View v) { selectFilter(top.id, k.id); }
             }, k));
         }
@@ -272,9 +272,13 @@ class TasksScreen extends Screen {
     private void categoryOptions(final Db.Category k) {
         new AlertDialog.Builder(a)
                 .setTitle(k.name)
-                .setItems(new String[]{"Rename", "Delete"}, new DialogInterface.OnClickListener() {
+                .setItems(new String[]{"Share…", "Rename", "Delete"}, new DialogInterface.OnClickListener() {
                     public void onClick(DialogInterface d, int which) {
                         if (which == 0) {
+                            SpacesUi.shareMenu(a, "tasks", "categories", k.id, new Runnable() {
+                                public void run() { reload(); }
+                            });
+                        } else if (which == 1) {
                             Util.prompt(a, "Rename category", k.name, "", "Save", new Util.TextEntered() {
                                 public void onText(String name) {
                                     db.renameCategory(k.id, name);
@@ -678,6 +682,9 @@ class TasksScreen extends Screen {
         });
         box.addView(addSub);
 
+        if (task.id != 0 && Account.signedIn(a)) box.addView(SpacesUi.shareRow(a, "tasks", "tasks", task.id, new Runnable() {
+            public void run() { reload(); }
+        }));
         box.addView(Util.label(a, "Notes"));
         final EditText notes = Util.field(a, task.notes);
         notes.setHint("Details, links, phone numbers…");

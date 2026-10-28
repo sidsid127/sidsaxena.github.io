@@ -130,7 +130,7 @@ class DatesScreen extends Page {
             }
             String sub = when(d, occ) + (d.fromWallet ? " · from Wallet" : " · " + d.kind)
                     + (d.remindDays >= 0 ? " · 🔔" : "");
-            row(card, emoji(d), d.title, sub, null, new Runnable() {
+            row(card, emoji(d), (d.fromWallet ? "" : SpacesUi.badge(a, "dates", d.id)) + d.title, sub, null, new Runnable() {
                 public void run() {
                     if (d.fromWallet) a.go("wallet", d.walletId, null);
                     else edit(d);
@@ -222,6 +222,9 @@ class DatesScreen extends Page {
         remind.setSelection(ri);
         box.addView(remind);
 
+        if (d.id != 0 && Account.signedIn(a)) box.addView(SpacesUi.shareRow(a, "dates", "dates", d.id, new Runnable() {
+            public void run() { render(); }
+        }));
         box.addView(Util.label(a, "Notes"));
         final EditText notes = Util.field(a, d.notes);
         notes.setHint("Gift ideas, contract number…");

@@ -19,7 +19,7 @@ import java.net.URL;
  * block: call them off the UI thread.
  */
 final class Account {
-    static final String SERVER = "https://doable-sid.vercel.app/";
+    static String SERVER = "https://doable-sid.vercel.app/"; // (tests point it at a local server)
     static final String CONTACT = "doable.by.sid@gmail.com";
     private static final String ALIAS = "doable_account";
 
@@ -108,14 +108,19 @@ final class Account {
         prefs(c).edit().clear().commit();
     }
 
-    private static String session(Context c) throws Exception {
+    static String session(Context c) throws Exception {
         String s = prefs(c).getString("session", null);
         if (s == null) throw new SignedOutException();
         return Secrets.unwrapString(ALIAS, s);
     }
 
     static JSONObject call(Context c, String action, JSONObject body, String session) throws Exception {
-        HttpURLConnection h = (HttpURLConnection) new URL(SERVER + "api/account").openConnection();
+        return call("api/account", action, body, session);
+    }
+
+    /** POST {action, …} to one of the server's endpoints (api/account, api/spaces). */
+    static JSONObject call(String path, String action, JSONObject body, String session) throws Exception {
+        HttpURLConnection h = (HttpURLConnection) new URL(SERVER + path).openConnection();
         h.setRequestMethod("POST");
         h.setDoOutput(true);
         h.setConnectTimeout(15000);
