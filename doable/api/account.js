@@ -158,11 +158,23 @@ const actions = {
   },
 };
 
+/** What kind of address DATABASE_URL is (never the address or password itself), to help fix a wrong one. */
+function urlHint() {
+  try {
+    const u = new URL(process.env.DATABASE_URL);
+    return { protocol: u.protocol, port: u.port, pooler: /pooler\.supabase\.com$/.test(u.hostname), direct: /^db\./.test(u.hostname),
+      user_has_project: u.username.includes('.'), password_placeholder: /YOUR-PASSWORD|%5B|\[/i.test(u.password), password_set: !!u.password };
+  } catch (e) { return { parse_error: true }; }
+}
+
 module.exports = async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
   if (req.method === 'GET') {
     if (!process.env.DATABASE_URL) return res.status(200).json({ configured: false });
-    try { return res.status(200).json({ configured: true, ...(await actions.config()) }); } catch (e) { return res.status(503).json({ configured: true, error: 'database_unreachable' }); }
+    try { return res.status(200).json({ configured: true, ...(await actions.config()) }); } catch (e) {
+      console.error('database', e.code, e.message);
+      return res.status(503).json({ configured: true, error: 'database_unreachable', code: e.code || '', hint: urlHint() });
+    }
   }
   if (req.method !== 'POST') return res.status(405).json({ error: 'method_not_allowed' });
   let b = req.body || {};
