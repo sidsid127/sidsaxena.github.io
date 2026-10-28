@@ -23,9 +23,10 @@ aapt package -f -m -J "$OUT/gen" -M AndroidManifest.xml -S res -I "$ANDROID_JAR"
     -F "$OUT/unsigned.apk"
 
 echo "2/5 compile"
+# Stop on any compile error (an APK missing a class would crash on the phone).
 javac -nowarn -Xlint:-options --release 8 -classpath "$API34_JAR" -d "$OUT/classes" \
-    $(find src "$OUT/gen" -name '*.java') 2>&1 | grep -v '^Picked up' || true
-test -f "$OUT/classes/com/sidsaxena/daybook/MainActivity.class"
+    $(find src "$OUT/gen" -name '*.java') > "$OUT/javac.log" 2>&1 || { grep -v '^Picked up' "$OUT/javac.log"; echo "Compile failed"; exit 1; }
+grep -v '^Picked up' "$OUT/javac.log" || true
 
 echo "3/5 dex"
 dalvik-exchange --dex --min-sdk-version=23 --output="$OUT/classes.dex" "$OUT/classes"

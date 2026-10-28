@@ -135,34 +135,72 @@ final class Store {
     }
 
     static final class Price {
-        String name, qty;
+        long id;
+        String name, qty; // qty "1 kg" = price per kg; older entries: the quantity bought
         long shop, cents, day;
     }
 
     void addPrice(String name, long shop, long cents, String qty) {
+        addPrice(name, shop, cents, qty, Util.startOfDay(System.currentTimeMillis()));
+    }
+
+    void addPrice(String name, long shop, long cents, String qty, long day) {
         ContentValues v = new ContentValues();
         v.put("name", name);
         v.put("shop", shop);
         v.put("cents", cents);
         v.put("qty", qty);
-        v.put("day", Util.startOfDay(System.currentTimeMillis()));
+        v.put("day", day);
         w().insert("prices", null, v);
+    }
+
+    void updatePrice(Price p) {
+        ContentValues v = new ContentValues();
+        v.put("name", p.name);
+        v.put("shop", p.shop);
+        v.put("cents", p.cents);
+        v.put("qty", p.qty);
+        v.put("day", p.day);
+        w().update("prices", v, "_id = ?", a(p.id));
+    }
+
+    void deletePrice(long id) {
+        w().delete("prices", "_id = ?", a(id));
+    }
+
+    /** Every product with a price: name → its prices, newest first. */
+    java.util.TreeMap<String, List<Price>> allPrices() {
+        java.util.TreeMap<String, List<Price>> out = new java.util.TreeMap<String, List<Price>>(String.CASE_INSENSITIVE_ORDER);
+        Cursor c = r().rawQuery("SELECT _id, name, shop, cents, qty, day FROM prices ORDER BY day DESC, _id DESC", null);
+        try {
+            while (c.moveToNext()) {
+                Price p = price(c);
+                if (!out.containsKey(p.name)) out.put(p.name, new ArrayList<Price>());
+                out.get(p.name).add(p);
+            }
+        } finally {
+            c.close();
+        }
+        return out;
+    }
+
+    private static Price price(Cursor c) {
+        Price p = new Price();
+        p.id = c.getLong(0);
+        p.name = c.getString(1);
+        p.shop = c.getLong(2);
+        p.cents = c.getLong(3);
+        p.qty = c.getString(4);
+        p.day = c.getLong(5);
+        return p;
     }
 
     /** Price history of one product, newest first. */
     List<Price> prices(String name) {
         List<Price> out = new ArrayList<Price>();
-        Cursor c = r().rawQuery("SELECT name, shop, cents, qty, day FROM prices WHERE name = ? ORDER BY day DESC, _id DESC LIMIT 60", a(name));
+        Cursor c = r().rawQuery("SELECT _id, name, shop, cents, qty, day FROM prices WHERE name = ? COLLATE NOCASE ORDER BY day DESC, _id DESC LIMIT 60", a(name));
         try {
-            while (c.moveToNext()) {
-                Price p = new Price();
-                p.name = c.getString(0);
-                p.shop = c.getLong(1);
-                p.cents = c.getLong(2);
-                p.qty = c.getString(3);
-                p.day = c.getLong(4);
-                out.add(p);
-            }
+            while (c.moveToNext()) out.add(price(c));
         } finally {
             c.close();
         }
@@ -172,15 +210,10 @@ final class Store {
     /** Latest price per shop for every product: name(lowercase) → shop → price. */
     Map<String, Map<Long, Price>> latestPrices() {
         Map<String, Map<Long, Price>> out = new HashMap<String, Map<Long, Price>>();
-        Cursor c = r().rawQuery("SELECT name, shop, cents, qty, day FROM prices ORDER BY day, _id", null);
+        Cursor c = r().rawQuery("SELECT _id, name, shop, cents, qty, day FROM prices ORDER BY day, _id", null);
         try {
             while (c.moveToNext()) {
-                Price p = new Price();
-                p.name = c.getString(0);
-                p.shop = c.getLong(1);
-                p.cents = c.getLong(2);
-                p.qty = c.getString(3);
-                p.day = c.getLong(4);
+                Price p = price(c);
                 String key = p.name.toLowerCase(java.util.Locale.getDefault());
                 if (!out.containsKey(key)) out.put(key, new HashMap<Long, Price>());
                 out.get(key).put(p.shop, p);

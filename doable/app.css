@@ -286,3 +286,21 @@ textarea.field { resize: vertical; }
 .search-hit { margin: 4px 0; }
 .banner { background: var(--selected); color: var(--text); border-radius: 12px; padding: 12px 14px; margin: 8px 0; font-size: 14px; display: flex; gap: 10px; align-items: center; }
 .banner button { color: var(--primary-text); font-weight: 700; margin-left: auto; flex: none; }
+
+/* ---------- groceries ---------- */
+.gitem { align-items: flex-start; padding-top: 8px; padding-bottom: 8px; }
+.gitem .tick { margin-top: 2px; }
+.gitem.urgent .row-title { font-weight: 600; color: var(--overdue); }
+.qtyline { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+.qtyline .row-sub { margin: 0 0 0 6px; }
+.step { width: 30px; height: 28px; border-radius: 14px; border: 1px solid var(--line); color: var(--primary); font-size: 17px; line-height: 1; background: var(--card); }
+.qtyn { min-width: 26px; text-align: center; font-weight: 600; }
+.unitsel { border: 1px solid var(--line); border-radius: 14px; padding: 3px 8px; background: var(--card); color: var(--primary); font: inherit; font-size: 14px; }
+.flag { width: 40px; height: 40px; border-radius: 20px; color: var(--muted); font-size: 18px; flex: none; }
+.flag.on { color: var(--overdue); }
+.flag:hover { background: var(--hover, rgba(0,0,0,.05)); }
+.inputbar-wrap { position: sticky; bottom: 0; z-index: 5; }
+.suggest:empty { display: none; }
+.suggest { padding: 6px 12px; background: var(--bg); }
+.section.red { color: var(--overdue); }
+.check-row { display: flex; align-items: center; gap: 8px; padding: 8px 0; }

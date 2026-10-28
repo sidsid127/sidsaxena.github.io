@@ -72,9 +72,9 @@ from the passphrase and check it by decrypting. A wrong passphrase fails the GCM
 | notes | body, pinned, created, modified, color, folder, locked, deleted |
 | shops | name, color |
 | grocery_lists | name |
-| grocery | name, shop→shops, done, created, qty, list→grocery_lists, aisle |
-| grocery_history | name, shop→shops, uses, last_used, list→grocery_lists |
-| prices | name, shop→shops, cents, qty, day ⓓ |
+| grocery | name, shop→shops, done, created, qty ("2 kg", "1 pack"), list→grocery_lists, aisle, urgent |
+| grocery_history | name, shop→shops, uses, last_used, list→grocery_lists, qty (last quantity used) |
+| prices | name, shop→shops, cents, qty ("1 kg" = price per kg; older rows: the bought quantity), day ⓓ |
 | diary | day ⓓ, mood, text, highs, lows, modified, place, lat, lon, weather, temp |
 | trips | name, kind, destination, start ⓓ, finish ⓓ, currency, created, budget, rates, pd_full, pd_partial, km_rate, per_diem |
 | expenses | trip→trips, day ⓓ, category, cents, currency, merchant, attendees, payment, note, submitted, created, km |

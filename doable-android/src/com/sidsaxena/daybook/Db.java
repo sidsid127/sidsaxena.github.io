@@ -84,6 +84,7 @@ public class Db extends SQLiteOpenHelper {
         public String qty = "";
         public long list = 1;
         public String aisle = "";
+        public boolean urgent;  // needed right away
     }
 
     /** A previously bought grocery item, offered under "Buy again". */
@@ -91,6 +92,7 @@ public class Db extends SQLiteOpenHelper {
         public String name;
         public long shop;
         public long list = 1;
+        public String qty = ""; // quantity used last time
     }
 
     public static class Entry {
@@ -111,7 +113,7 @@ public class Db extends SQLiteOpenHelper {
     }
 
     private Db(Context context) {
-        super(context, "daybook.db", null, 6);
+        super(context, "daybook.db", null, 7);
         setWriteAheadLoggingEnabled(true); // readers (screens) keep working while sync writes
     }
 
@@ -128,6 +130,7 @@ public class Db extends SQLiteOpenHelper {
         createV4(db);
         createV5(db);
         createV6(db);
+        createV7(db);
     }
 
     /** A crash during a sync could leave the "applying" flag set; clear it. */
@@ -157,6 +160,13 @@ public class Db extends SQLiteOpenHelper {
         }
         if (oldVersion < 5) createV5(db);
         if (oldVersion < 6) createV6(db);
+        if (oldVersion < 7) createV7(db);
+    }
+
+    /** Version 7: urgent grocery items, and the last quantity used for each product. */
+    static void createV7(SQLiteDatabase db) {
+        db.execSQL("ALTER TABLE grocery ADD COLUMN urgent INTEGER NOT NULL DEFAULT 0");
+        db.execSQL("ALTER TABLE grocery_history ADD COLUMN qty TEXT NOT NULL DEFAULT ''");
     }
 
     static final String NOW_MS = "CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER)";
@@ -670,7 +680,7 @@ public class Db extends SQLiteOpenHelper {
     public List<Item> items() {
         List<Item> out = new ArrayList<Item>();
         Cursor c = getReadableDatabase().rawQuery(
-                "SELECT _id, name, shop, done, created, qty, list, aisle FROM grocery ORDER BY done, created", null);
+                "SELECT _id, name, shop, done, created, qty, list, aisle, urgent FROM grocery ORDER BY done, created", null);
         try {
             while (c.moveToNext()) {
                 Item it = new Item();
@@ -682,6 +692,7 @@ public class Db extends SQLiteOpenHelper {
                 it.qty = c.getString(5);
                 it.list = c.getLong(6);
                 it.aisle = c.getString(7);
+                it.urgent = c.getInt(8) != 0;
                 out.add(it);
             }
         } finally {
@@ -708,8 +719,8 @@ public class Db extends SQLiteOpenHelper {
         v.put("created", now);
         db.insert("grocery", null, v);
         // (No UPSERT: SQLite on older Android versions doesn't support it.)
-        db.execSQL("UPDATE grocery_history SET shop = ?, list = ?, uses = uses + 1, last_used = ? WHERE name = ?",
-                new Object[]{shop, list, now, name});
+        db.execSQL("UPDATE grocery_history SET shop = ?, list = ?, uses = uses + 1, last_used = ?, qty = ? WHERE name = ?",
+                new Object[]{shop, list, now, qty, name});
         if (android.database.DatabaseUtils.longForQuery(db, "SELECT changes()", null) == 0) {
             ContentValues h = new ContentValues();
             h.put("name", name);
@@ -717,6 +728,7 @@ public class Db extends SQLiteOpenHelper {
             h.put("list", list);
             h.put("uses", 1);
             h.put("last_used", now);
+            h.put("qty", qty);
             db.insert("grocery_history", null, h);
         }
     }
@@ -728,11 +740,28 @@ public class Db extends SQLiteOpenHelper {
         v.put("shop", it.shop);
         v.put("list", it.list);
         v.put("aisle", it.aisle);
+        v.put("urgent", it.urgent ? 1 : 0);
         getWritableDatabase().update("grocery", v, "_id = ?", new String[]{String.valueOf(it.id)});
         ContentValues h = new ContentValues();
         h.put("shop", it.shop);
         h.put("list", it.list);
+        h.put("qty", it.qty);
         getWritableDatabase().update("grocery_history", h, "name = ?", new String[]{it.name});
+    }
+
+    /** New quantity from the +/− buttons or the unit picker; remembered for next time. */
+    public void setItemQty(Item it, String qty) {
+        it.qty = qty;
+        ContentValues v = new ContentValues();
+        v.put("qty", qty);
+        getWritableDatabase().update("grocery", v, "_id = ?", new String[]{String.valueOf(it.id)});
+        getWritableDatabase().update("grocery_history", v, "name = ?", new String[]{it.name});
+    }
+
+    public void setItemUrgent(long id, boolean urgent) {
+        ContentValues v = new ContentValues();
+        v.put("urgent", urgent ? 1 : 0);
+        getWritableDatabase().update("grocery", v, "_id = ?", new String[]{String.valueOf(id)});
     }
 
     public void updateItem(long id, String name, long shop) {
@@ -763,13 +792,14 @@ public class Db extends SQLiteOpenHelper {
     public List<Usual> usuals() {
         List<Usual> out = new ArrayList<Usual>();
         Cursor c = getReadableDatabase().rawQuery(
-                "SELECT name, shop, list FROM grocery_history ORDER BY uses DESC, last_used DESC LIMIT 150", null);
+                "SELECT name, shop, list, qty FROM grocery_history ORDER BY uses DESC, last_used DESC LIMIT 150", null);
         try {
             while (c.moveToNext()) {
                 Usual u = new Usual();
                 u.name = c.getString(0);
                 u.shop = c.getLong(1);
                 u.list = c.getLong(2);
+                u.qty = c.getString(3);
                 out.add(u);
             }
         } finally {
@@ -791,6 +821,7 @@ public class Db extends SQLiteOpenHelper {
         v.put("qty", it.qty);
         v.put("list", it.list);
         v.put("aisle", it.aisle);
+        v.put("urgent", it.urgent ? 1 : 0);
         getWritableDatabase().insert("grocery", null, v);
     }
 

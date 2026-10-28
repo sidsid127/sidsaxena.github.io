@@ -335,24 +335,94 @@ export function aisle(name) {
 }
 export const aisleIndex = (a) => (AISLES.indexOf(a) < 0 ? AISLES.length - 1 : AISLES.indexOf(a));
 
-/** [qty, name]: "2 milk", "500g flour", "1,5 kg potatoes", "milk x2", "2x eggs", "eggs (10)". */
+// ---- quantities: "2 kg", "1 pack", "10 pcs" (canonical: number with ".", one space, unit from UNITS)
+
+export const UNITS = ['pcs', 'pack', 'kg', 'g', 'l', 'ml', 'bottle', 'can', 'bag', 'box', 'dozen'];
+const UNIT_WORDS = {
+  x: '', '×': '', pc: 'pcs', pcs: 'pcs', piece: 'pcs', pieces: 'pcs', stk: 'pcs', st: 'pcs', 'stück': 'pcs',
+  pack: 'pack', packs: 'pack', packet: 'pack', packets: 'pack', pkg: 'pack', pck: 'pack', packung: 'pack', packungen: 'pack',
+  kg: 'kg', kilo: 'kg', kilos: 'kg', kilogram: 'kg', kilograms: 'kg', g: 'g', gr: 'g', gram: 'g', grams: 'g', gramm: 'g',
+  l: 'l', ltr: 'l', liter: 'l', litre: 'l', liters: 'l', litres: 'l', ml: 'ml',
+  bottle: 'bottle', bottles: 'bottle', flasche: 'bottle', flaschen: 'bottle', can: 'can', cans: 'can', dose: 'can', dosen: 'can',
+  bag: 'bag', bags: 'bag', 'tüte': 'bag', box: 'box', boxes: 'box', dozen: 'dozen',
+};
+const UNIT_RE = Object.keys(UNIT_WORDS).sort((a, b) => b.length - a.length).map((w) => w.replace(/[.×]/g, '\\$&')).join('|');
+const NUM = '(\\d+(?:[.,]\\d+)?)';
+
+/** Unit word → one of UNITS ('' for "x"), or null if it isn't a unit. */
+export function normalizeUnit(w) {
+  const k = (w || '').trim().toLowerCase().replace(/\.$/, '');
+  return Object.prototype.hasOwnProperty.call(UNIT_WORDS, k) ? UNIT_WORDS[k] : null;
+}
+const numStr = (n) => String(Math.round(n * 1000) / 1000);
+export function formatQty(n, unit) { return n > 0 ? numStr(n) + (unit ? ' ' + unit : '') : ''; }
+/** "1,5 kg" → {n: 1.5, unit: 'kg'}; "" → {n: 0, unit: ''}. Unknown words stay as the unit text. */
+export function parseQty(q) {
+  const m = /^\s*(\d+(?:[.,]\d+)?)\s*(.*?)\s*$/.exec(q || '');
+  if (!m) return { n: 0, unit: '' };
+  const u = normalizeUnit(m[2]);
+  return { n: parseFloat(m[1].replace(',', '.')), unit: u === null ? m[2] : u };
+}
+const qtyOf = (num, unitWord) => formatQty(parseFloat(num.replace(',', '.')), unitWord ? normalizeUnit(unitWord) : '');
+
+/** [qty, name]: "2 milk", "500g flour", "1,5 kg potatoes", "milk x2", "Milk × 2 l", "2x eggs", "eggs (10)". */
 export function splitQuantity(input) {
   const s = input.trim();
-  let m = /^(\d+(?:[.,]\d+)?)\s*(x|×|kg|g|l|ml|pack|packs|pcs|stk|st\.?|dozen|bottles?|cans?|bags?)?\s+(.+)$/i.exec(s);
-  if (m) return [!m[2] || /^(x|×)$/i.test(m[2]) ? m[1] : m[1] + ' ' + m[2].toLowerCase(), m[3].trim()];
+  let m = new RegExp('^' + NUM + '\\s*(' + UNIT_RE + ')?\\.?\\s+(.+)$', 'i').exec(s);
+  if (m) return [qtyOf(m[1], m[2]), m[3].trim()];
   m = /^(\d+)\s*[x×](\S.*)$/i.exec(s);
   if (m) return [m[1], m[2].trim()];
-  m = /^(.+?)\s+[x×]\s*(\d+)$|^(.+?)\s*\((\d+(?:[.,]\d+)?\s*\w*)\)$/i.exec(s);
-  if (m) return m[1] ? [m[2], m[1].trim()] : [m[4].trim(), m[3].trim()];
+  m = new RegExp('^(.+?)\\s+[x×]?\\s*' + NUM + '\\s*(' + UNIT_RE + ')?\\.?$', 'i').exec(s);
+  if (m && /\D/.test(m[1])) return [qtyOf(m[2], m[3]), m[1].replace(/\s*[x×]$/, '').trim()];
+  m = new RegExp('^(.+?)\\s*\\(' + NUM + '\\s*(' + UNIT_RE + ')?\\)$', 'i').exec(s);
+  if (m) return [qtyOf(m[2], m[3]), m[1].trim()];
   return ['', s];
 }
-/** lines: [{name, qty, shop}] grouped by shop. */
+
+// Usual unit (and amount) for common products, English and German stems; anything else is counted in pieces.
+const UNIT_GUESS = [
+  ['l', 1, ['milk', 'milch', 'juice', 'saft', 'water', 'wasser', 'oil', 'öl', 'vinegar', 'essig', 'buttermilk']],
+  ['kg', 1, ['potato', 'kartoffel', 'apple', 'apfel', 'äpfel', 'onion', 'zwiebel', 'flour', 'mehl', 'sugar', 'zucker', 'rice', 'reis',
+    'carrot', 'karotte', 'möhre', 'tomato', 'tomate', 'banana', 'banane', 'orange', 'grape', 'traube', 'pear', 'birne', 'mince', 'hack',
+    'chicken', 'hähnchen', 'beef', 'rind', 'pork', 'schwein', 'meat', 'fleisch']],
+  ['pack', 1, ['pasta', 'nudel', 'spaghetti', 'butter', 'cheese', 'käse', 'coffee', 'kaffee', 'tea', 'tee', 'cereal', 'müsli', 'muesli',
+    'toast', 'chips', 'cookie', 'keks', 'toilet', 'klopapier', 'tissue', 'taschentuch', 'ham', 'schinken', 'salami', 'quark', 'oat', 'hafer']],
+  ['bottle', 1, ['wine', 'wein', 'beer', 'bier', 'shampoo', 'ketchup', 'cola', 'coke', 'soda', 'sprudel', 'limo', 'sekt', 'prosecco']],
+  ['can', 1, ['tuna', 'thunfisch', 'beans', 'bohnen', 'corn', 'mais']],
+  ['pcs', 10, ['egg', 'eier']],
+];
+/** "1 l" for milk, "1 kg" for potatoes, "10 pcs" for eggs, "1 pcs" otherwise. */
+export function defaultQty(name) {
+  const n = ' ' + (name || '').toLowerCase();
+  for (const [unit, amount, words] of UNIT_GUESS) if (words.some((w) => n.includes(' ' + w))) return formatQty(amount, unit);
+  return '1 pcs';
+}
+const STEP = { kg: 0.5, g: 100, l: 0.5, ml: 250 };
+/** One step up (dir 1) or down (-1): pieces by 1, kg / l by 0.5, g by 100, ml by 250; never below one step. */
+export function stepQty(q, dir) {
+  const { n, unit } = parseQty(q);
+  const st = STEP[unit] || 1;
+  const v = Math.max(st, Math.round((n + dir * st) / st) * st);
+  return formatQty(v, unit);
+}
+/** Same amount in another unit: "2 kg" → "2 pack". */
+export const withUnit = (q, unit) => formatQty(parseQty(q).n || 1, unit);
+
+/** "€1.29 / kg" for a price per one unit, "€3.00 for 2 kg" otherwise. */
+export function unitPrice(cents, qty, currency) {
+  const { n, unit } = parseQty(qty);
+  const m = money(cents, currency);
+  if (n === 1 && unit) return m + ' / ' + (unit === 'pcs' ? 'piece' : unit);
+  return qty ? m + ' for ' + qty : m;
+}
+
+/** lines: [{name, qty, shop}] grouped by shop; items as "• Milk × 2 l". */
 export function groceryFormat(listName, lines) {
   let out = '🛒 ' + listName + '\n';
   let shop = null;
   for (const l of lines) {
     if (l.shop !== shop) { out += '\n' + (l.shop || 'Any shop') + '\n'; shop = l.shop; }
-    out += '• ' + (l.qty ? l.qty + ' × ' : '') + l.name + '\n';
+    out += '• ' + l.name + (l.qty ? ' × ' + l.qty : '') + '\n';
   }
   return out + '\n(Edit and share back to Doable to update the list)';
 }
@@ -369,8 +439,11 @@ export function groceryParse(text, shopNames) {
       if (match || clean.toLowerCase() === 'any shop') { shop = match || ''; continue; }
     }
     if (!clean) continue;
+    // "Milk × 2 l" (now) or "2 × Milk" (older lists): the side that is an amount is the quantity.
     const m = /^(.+?)\s*×\s*(.+)$/.exec(clean);
-    const [qty, name] = m ? [m[1].trim(), m[2].trim()] : splitQuantity(clean);
+    const isQty = (t) => new RegExp('^' + NUM + '\\s*(' + UNIT_RE + ')?\\.?$', 'i').test(t.trim());
+    const [qty, name] = m && isQty(m[2]) ? [splitQuantity('x ' + m[2])[0] || m[2].trim(), m[1].trim()]
+      : m && isQty(m[1]) ? [m[1].trim(), m[2].trim()] : splitQuantity(clean);
     out.push({ name, qty, shop });
   }
   return out;

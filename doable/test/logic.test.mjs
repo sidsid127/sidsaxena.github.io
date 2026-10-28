@@ -54,11 +54,24 @@ eq('aisle ice cream', L.aisle('Vanilla ice cream'), 'Frozen');
 eq('aisle unknown', L.aisle('Gift card'), 'Other');
 eq('qty', [L.splitQuantity('2 milk'), L.splitQuantity('500g flour'), L.splitQuantity('eggs x10'), L.splitQuantity('1,5 kg potatoes'),
   L.splitQuantity('Bananas'), L.splitQuantity('7up')],
-  [['2', 'milk'], ['500 g', 'flour'], ['10', 'eggs'], ['1,5 kg', 'potatoes'], ['', 'Bananas'], ['', '7up']]);
+  [['2', 'milk'], ['500 g', 'flour'], ['10', 'eggs'], ['1.5 kg', 'potatoes'], ['', 'Bananas'], ['', '7up']]);
 const shared = L.groceryFormat('Groceries', [{ name: 'Milk', qty: '2', shop: 'Rewe' }, { name: 'Bread', qty: '', shop: 'Rewe' },
   { name: 'Eggs', qty: '10', shop: 'Lidl' }]) + '\n• Butter\n- 3 × Apples';
 eq('share roundtrip', L.groceryParse(shared, ['Rewe', 'Lidl', 'Aldi']).map((l) => l.shop + ':' + l.qty + ':' + l.name).join(' '),
   'Rewe:2:Milk Rewe::Bread Lidl:10:Eggs Lidl::Butter Lidl:3:Apples');
+
+// Grocery quantities and units (same cases as the Android LogicTest)
+eq('qty units', ['Milk × 2 l', 'milk x2', '2 kilos apples', '3 Packungen Nudeln', 'Cola 0.5 l', 'Milk 1.5%', '2x eggs'].map(L.splitQuantity),
+  [['2 l', 'Milk'], ['2', 'milk'], ['2 kg', 'apples'], ['3 pack', 'Nudeln'], ['0.5 l', 'Cola'], ['', 'Milk 1.5%'], ['2', 'eggs']]);
+eq('default qty', ['Milch', 'Eggs', 'Kartoffeln', 'Toilet paper', 'Red wine', 'Bread'].map(L.defaultQty),
+  ['1 l', '10 pcs', '1 kg', '1 pack', '1 bottle', '1 pcs']);
+eq('step qty', [L.stepQty('1 kg', 1), L.stepQty('1 kg', -1), L.stepQty('0.5 kg', -1), L.stepQty('500 g', 1), L.stepQty('2 pcs', -1), L.stepQty('1 pack', -1)],
+  ['1.5 kg', '0.5 kg', '0.5 kg', '600 g', '1 pcs', '1 pack']);
+eq('with unit', [L.withUnit('2 kg', 'pack'), L.withUnit('', 'l')], ['2 pack', '1 l']);
+eq('unit price', [L.unitPrice(129, '1 kg', 'EUR'), L.unitPrice(25, '1 pcs', 'EUR'), L.unitPrice(300, '2 kg', 'EUR')],
+  ['1.29 EUR / kg', '0.25 EUR / piece', '3.00 EUR for 2 kg']);
+eq('share new format', L.groceryFormat('G', [{ name: 'Milk', qty: '2 l', shop: '' }]).split('\n')[3], '• Milk × 2 l');
+eq('parse both orders', L.groceryParse('• Milk × 2 l\n- 3 × Apples\n• Eggs × 10', []).map((l) => l.qty + ':' + l.name).join(' '), '2 l:Milk 3:Apples 10:Eggs');
 
 const rates = L.parseRates('INR=0.0108;USD=0.92');
 eq('conv', [L.toHome(100000, 'INR', 'EUR', rates), L.toHome(500, 'eur', 'EUR', rates), L.toHome(500, 'GBP', 'EUR', rates)], [1080, 500, -1]);

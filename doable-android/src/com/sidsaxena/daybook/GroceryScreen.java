@@ -27,14 +27,16 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Shopping lists (groceries, drugstore, hardware…) grouped by shop and sorted by aisle. Ticking an item off
- * removes it (with Undo) and can ask what you paid, so you can see where a product is cheapest. Everything
- * ever added is remembered under "Buy again"; lists can be shared to WhatsApp and merged back in.
+ * Shopping lists (groceries, drugstore, hardware…) grouped by shop and sorted by aisle; urgent items first.
+ * Each item has a quantity with a unit ("2 kg", "1 pack"): − / + and a unit picker change it without typing,
+ * and the last quantity of a product is used again next time. Ticking an item off removes it (with Undo) and
+ * can ask the price per unit, so you can see where a product is cheapest. Everything ever added is remembered
+ * under "Buy again"; lists can be shared to WhatsApp and merged back in.
  */
 class GroceryScreen extends Screen {
 
     private static final int MENU_CLEAR = 120, MENU_SHARE = 121, MENU_IMPORT = 122, MENU_ASK_PRICE = 123,
-            MENU_RENAME_LIST = 124, MENU_DELETE_LIST = 125;
+            MENU_RENAME_LIST = 124, MENU_DELETE_LIST = 125, MENU_PRICES = 126;
     private static final long UNDO_MS = 6000;
 
     private final LinearLayout content, shopChips, listChips;
@@ -144,8 +146,17 @@ class GroceryScreen extends Screen {
         String text = input.getText().toString().trim();
         if (text.isEmpty()) return;
         String[] q = GroceryText.splitQuantity(text);
-        add(q[1], q[0], selShop);
+        add(q[1], quantityFor(q[1], q[0]), selShop);
         input.setText("");
+    }
+
+    /** What was typed, else the quantity used last time, else the usual one for the product ("1 l" milk, "10 pcs" eggs). */
+    private String quantityFor(String name, String typed) {
+        String last = "";
+        for (Db.Usual u : db.usuals()) if (key(u.name).equals(key(name))) last = u.qty;
+        String usual = last.isEmpty() ? GroceryText.defaultQty(name) : last;
+        if (typed.isEmpty()) return usual;
+        return GroceryText.unit(typed).isEmpty() ? GroceryText.withUnit(typed, GroceryText.unit(usual)) : typed;
     }
 
     /** Adds an item unless it is already on this list. */
@@ -161,7 +172,7 @@ class GroceryScreen extends Screen {
         return true;
     }
 
-    /** Ticking an item off: optionally ask the price, then remove it with an Undo bar. */
+    /** Ticking an item off: optionally ask the price (per unit), then remove it with an Undo bar. */
     private void tick(final Db.Item it) {
         if (!askPrice()) {
             bought(it);
@@ -169,19 +180,39 @@ class GroceryScreen extends Screen {
         }
         Map<Long, Store.Price> known = prices.get(key(it.name));
         Store.Price last = known == null ? null : known.get(it.shop);
-        final EditText amount = Util.field(a, last == null ? "" : String.format(Locale.getDefault(), "%.2f", last.cents / 100.0));
+        final String itemUnit = GroceryText.unit(it.qty).isEmpty() ? "pcs" : GroceryText.unit(it.qty);
+        final double bought = GroceryText.amount(it.qty);
+        final EditText amount = Util.field(a, last == null || GroceryText.amount(last.qty) != 1 ? ""
+                : String.format(Locale.getDefault(), "%.2f", last.cents / 100.0));
         amount.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL);
         amount.setKeyListener(android.text.method.DigitsKeyListener.getInstance("0123456789.,"));
         amount.setHint("Price in € (optional)");
         amount.setSelectAllOnFocus(true);
+        // "per kg" (the item's unit) first; "for all 2 kg" when more than one was bought.
+        final List<String> per = new ArrayList<String>();
+        per.add(itemUnit);
+        for (String u : GroceryText.UNITS) if (!per.contains(u) && !u.equals("g") && !u.equals("ml")) per.add(u);
+        List<String> labels = new ArrayList<String>();
+        for (String u : per) labels.add("per " + unitLabel(u));
+        if (bought > 0 && bought != 1) labels.add("for all " + it.qty);
+        final Spinner perSpinner = new Spinner(a);
+        perSpinner.setAdapter(new ArrayAdapter<String>(a, android.R.layout.simple_spinner_dropdown_item, labels));
+        LinearLayout box = Util.dialogBox(a);
+        box.addView(amount);
+        box.addView(perSpinner);
         AlertDialog d = new AlertDialog.Builder(a)
                 .setTitle("✓ " + it.name + (it.shop != 0 ? " at " + shopName(it.shop) : ""))
-                .setMessage("What did you pay? It helps you compare shops later.")
-                .setView(Util.wrap(a, amount))
+                .setMessage("What did it cost? Doable keeps the price per unit to compare shops.")
+                .setView(box)
                 .setPositiveButton("Save price", new DialogInterface.OnClickListener() {
                     public void onClick(DialogInterface dlg, int which) {
                         long cents = TripsScreen.parseAmount(amount.getText().toString());
-                        if (cents > 0) st.addPrice(it.name, it.shop, cents, it.qty);
+                        int sel = perSpinner.getSelectedItemPosition();
+                        if (cents > 0 && sel >= per.size()) {
+                            st.addPrice(it.name, it.shop, Math.round(cents / bought), "1 " + itemUnit); // total → per unit
+                        } else if (cents > 0) {
+                            st.addPrice(it.name, it.shop, cents, "1 " + per.get(sel));
+                        }
                         bought(it);
                     }
                 })
@@ -193,12 +224,14 @@ class GroceryScreen extends Screen {
         Util.showKeyboard(amount);
     }
 
+    static String unitLabel(String unit) {
+        return unit.equals("pcs") ? "piece" : unit;
+    }
+
     private void bought(Db.Item it) {
         db.deleteItem(it.id);
         justBought.add(it);
-        long spent = st.spentToday();
-        undoText.setText((justBought.size() == 1 ? "✓ Bought " + it.name : "✓ Bought " + justBought.size() + " items")
-                + (spent > 0 ? "  ·  today " + TripsScreen.money(spent, "€") : ""));
+        undoText.setText(justBought.size() == 1 ? "✓ Bought " + it.name : "✓ Bought " + justBought.size() + " items");
         undoBar.setVisibility(View.VISIBLE);
         undoBar.removeCallbacks(hideUndo);
         undoBar.postDelayed(hideUndo, UNDO_MS);
@@ -252,20 +285,25 @@ class GroceryScreen extends Screen {
             }
         }
 
-        long spent = st.spentToday();
+        int urgentCount = 0;
+        for (Db.Item it : items) if (it.urgent) urgentCount++;
         TextView summary = text(items.isEmpty() ? "This list is empty. Add items below or tap one under Buy again."
-                : items.size() + " to buy" + (spent > 0 ? " · spent today " + TripsScreen.money(spent, "€") : "")
+                : items.size() + (items.size() == 1 ? " item" : " items") + " to buy" + (urgentCount > 0 ? " · " + urgentCount + " urgent" : "")
                 + " · tap an item when it's in your cart", 13, R.color.muted);
         summary.setPadding(Util.dp(a, 4), Util.dp(a, 12), 0, Util.dp(a, 2));
         content.addView(summary);
 
-        // One section per shop (shops in order, "Any shop" last); items in aisle order within a shop.
+        // Urgent items first, then one section per shop (shops in order, "Any shop" last), aisle order within.
+        if (urgentCount > 0) {
+            content.addView(header("❗ Needed now  ·  " + urgentCount, Util.color(a, R.color.overdue)));
+            for (Db.Item it : items) if (it.urgent) content.addView(itemRow(it));
+        }
         List<Long> order = new ArrayList<Long>();
         for (Db.Shop s : shops) order.add(s.id);
         order.add(0L);
         for (long shopId : order) {
             List<Db.Item> section = new ArrayList<Db.Item>();
-            for (Db.Item it : items) if (it.shop == shopId || (shopId == 0 && shop(it.shop) == null)) section.add(it);
+            for (Db.Item it : items) if (!it.urgent && (it.shop == shopId || (shopId == 0 && shop(it.shop) == null))) section.add(it);
             if (section.isEmpty()) continue;
             Collections.sort(section, new Comparator<Db.Item>() {
                 public int compare(Db.Item x, Db.Item y) {
@@ -299,7 +337,7 @@ class GroceryScreen extends Screen {
         for (int i = 0; i < Math.min(3, list.size()); i++) {
             if (i > 0) sb.append("  ·  ");
             sb.append(i == 0 && list.size() > 1 ? "cheapest " : "").append(shopName(list.get(i).shop)).append(' ')
-                    .append(TripsScreen.money(list.get(i).cents, "€"));
+                    .append(GroceryText.unitPrice(TripsScreen.money(list.get(i).cents, "€"), list.get(i).qty));
         }
         return sb.toString();
     }
@@ -312,7 +350,7 @@ class GroceryScreen extends Screen {
                 public void onClick(View v) {
                     String[] typed = GroceryText.splitQuantity(input.getText().toString());
                     if (input.getText().length() > 0) input.setText(""); // also refreshes the list
-                    add(u.name, typed[0], shop(u.shop) != null ? u.shop : 0);
+                    add(u.name, quantityFor(u.name, typed[0]), shop(u.shop) != null ? u.shop : 0);
                 }
             });
             c.setOnLongClickListener(new View.OnLongClickListener() {
@@ -339,18 +377,159 @@ class GroceryScreen extends Screen {
                 }).show();
     }
 
-    private void priceHistory(String name) {
-        List<Store.Price> list = st.prices(name);
-        StringBuilder sb = new StringBuilder();
-        if (list.isEmpty()) sb.append("No prices yet. When you tick this item off, enter what you paid.");
-        for (Store.Price p : list) {
-            sb.append(Util.shortDate(p.day)).append("   ").append(shopName(p.shop)).append("   ")
-                    .append(TripsScreen.money(p.cents, "€")).append(p.qty.isEmpty() ? "" : "  (" + p.qty + ")").append('\n');
-        }
+    /** One product's prices, newest first: tap one to correct or delete it; "Add price" for a missing one. */
+    private void priceHistory(final String name) {
+        final List<Store.Price> list = st.prices(name);
         String best = priceLine(name);
-        new AlertDialog.Builder(a).setTitle("Prices · " + name)
-                .setMessage((best.isEmpty() ? "" : best + "\n\n") + sb.toString().trim())
-                .setPositiveButton("OK", null).show();
+        List<String> rows = new ArrayList<String>();
+        for (Store.Price p : list) {
+            rows.add(Util.shortDate(p.day) + "   " + shopName(p.shop) + "   " + GroceryText.unitPrice(TripsScreen.money(p.cents, "€"), p.qty));
+        }
+        AlertDialog.Builder b = new AlertDialog.Builder(a).setTitle("Prices · " + name)
+                .setPositiveButton("Close", null)
+                .setNeutralButton("Add price", new DialogInterface.OnClickListener() {
+                    public void onClick(DialogInterface d, int which) {
+                        Store.Price p = new Store.Price();
+                        p.id = 0;
+                        p.name = name;
+                        p.qty = "1 " + GroceryText.unit(GroceryText.defaultQty(name));
+                        p.day = Util.startOfDay(System.currentTimeMillis());
+                        p.shop = selShop;
+                        editPrice(p);
+                    }
+                });
+        if (list.isEmpty()) b.setMessage("No prices yet. When you tick this item off, enter what it cost — or add one here.");
+        else b.setItems(rows.toArray(new String[0]), new DialogInterface.OnClickListener() {
+            public void onClick(DialogInterface d, int which) { editPrice(list.get(which)); }
+        });
+        if (!best.isEmpty() && !list.isEmpty()) b.setTitle("Prices · " + name + "\n" + best);
+        b.show();
+    }
+
+    /** Correct or delete a price (id 0 = a new one). */
+    private void editPrice(final Store.Price p) {
+        LinearLayout box = Util.dialogBox(a);
+        box.addView(Util.label(a, "Price in €"));
+        final EditText amount = Util.field(a, p.id == 0 ? "" : String.format(Locale.getDefault(), "%.2f", p.cents / 100.0));
+        amount.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL);
+        amount.setKeyListener(android.text.method.DigitsKeyListener.getInstance("0123456789.,"));
+        box.addView(amount);
+        box.addView(Util.label(a, "Per"));
+        final List<String> units = new ArrayList<String>(java.util.Arrays.asList(GroceryText.UNITS));
+        List<String> labels = new ArrayList<String>();
+        for (String u : units) labels.add("per " + unitLabel(u));
+        boolean legacy = GroceryText.amount(p.qty) != 1 || GroceryText.unit(p.qty).isEmpty();
+        if (legacy) labels.add(p.qty.isEmpty() ? "(not given)" : "for " + p.qty);
+        final Spinner per = new Spinner(a);
+        per.setAdapter(new ArrayAdapter<String>(a, android.R.layout.simple_spinner_dropdown_item, labels));
+        per.setSelection(legacy ? labels.size() - 1 : Math.max(0, units.indexOf(GroceryText.unit(p.qty))));
+        box.addView(per);
+        box.addView(Util.label(a, "Shop"));
+        final List<Long> ids = new ArrayList<Long>();
+        List<String> names = new ArrayList<String>();
+        ids.add(0L);
+        names.add("Any shop");
+        for (Db.Shop sh : shops) {
+            ids.add(sh.id);
+            names.add(sh.name);
+        }
+        final Spinner shop = new Spinner(a);
+        shop.setAdapter(new ArrayAdapter<String>(a, android.R.layout.simple_spinner_dropdown_item, names));
+        shop.setSelection(Math.max(0, ids.indexOf(p.shop)));
+        box.addView(shop);
+        box.addView(Util.label(a, "Date"));
+        final long[] day = {p.day};
+        final TextView date = text(Util.shortDate(p.day), 16, R.color.primary_text);
+        date.setPadding(Util.dp(a, 4), Util.dp(a, 10), 0, Util.dp(a, 10));
+        date.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                java.util.Calendar c = java.util.Calendar.getInstance();
+                c.setTimeInMillis(day[0]);
+                new android.app.DatePickerDialog(a, new android.app.DatePickerDialog.OnDateSetListener() {
+                    public void onDateSet(android.widget.DatePicker view, int y, int m, int d) {
+                        day[0] = Store.dayOf(y, m + 1, d);
+                        date.setText(Util.shortDate(day[0]));
+                    }
+                }, c.get(java.util.Calendar.YEAR), c.get(java.util.Calendar.MONTH), c.get(java.util.Calendar.DAY_OF_MONTH)).show();
+            }
+        });
+        box.addView(date);
+        AlertDialog.Builder b = new AlertDialog.Builder(a).setTitle((p.id == 0 ? "Add price · " : "Price · ") + p.name).setView(Util.wrap(a, box))
+                .setPositiveButton("Save", new DialogInterface.OnClickListener() {
+                    public void onClick(DialogInterface d, int which) {
+                        long cents = TripsScreen.parseAmount(amount.getText().toString());
+                        if (cents <= 0) {
+                            Toast.makeText(a, "Enter a price", Toast.LENGTH_SHORT).show();
+                            return;
+                        }
+                        p.cents = cents;
+                        int sel = per.getSelectedItemPosition();
+                        if (sel < units.size()) p.qty = "1 " + units.get(sel);
+                        p.shop = ids.get(shop.getSelectedItemPosition());
+                        p.day = day[0];
+                        if (p.id == 0) st.addPrice(p.name, p.shop, p.cents, p.qty, p.day);
+                        else st.updatePrice(p);
+                        reload();
+                        priceHistory(p.name);
+                    }
+                })
+                .setNegativeButton("Cancel", null);
+        if (p.id != 0) {
+            b.setNeutralButton("Delete", new DialogInterface.OnClickListener() {
+                public void onClick(DialogInterface d, int which) {
+                    st.deletePrice(p.id);
+                    Toast.makeText(a, "Price deleted", Toast.LENGTH_SHORT).show();
+                    reload();
+                    priceHistory(p.name);
+                }
+            });
+        }
+        b.show();
+    }
+
+    /** All products with prices: typical (median) price per unit, cheapest shop, lowest and highest. */
+    private void priceOverview() {
+        final java.util.TreeMap<String, List<Store.Price>> all = st.allPrices();
+        if (all.isEmpty()) {
+            new AlertDialog.Builder(a).setTitle("Prices").setMessage("No prices yet. When you tick an item off, enter what it cost "
+                    + "(turn on \"Ask for the price\" in the menu). Then you see here what things usually cost and where they're cheapest.")
+                    .setPositiveButton("OK", null).show();
+            return;
+        }
+        final List<String> names = new ArrayList<String>(all.keySet());
+        List<String> rows = new ArrayList<String>();
+        for (String n : names) rows.add(n + "\n" + priceSummary(all.get(n)));
+        new AlertDialog.Builder(a).setTitle("Prices · tap a product to see or correct them")
+                .setItems(rows.toArray(new String[0]), new DialogInterface.OnClickListener() {
+                    public void onClick(DialogInterface d, int which) { priceHistory(names.get(which)); }
+                })
+                .setPositiveButton("Close", null).show();
+    }
+
+    /** "usually 1.29 € / kg · 0.99–1.49 · cheapest at Lidl · 5 prices" for the most common unit. */
+    private String priceSummary(List<Store.Price> list) {
+        Map<String, List<Store.Price>> byUnit = new java.util.HashMap<String, List<Store.Price>>();
+        String common = null;
+        for (Store.Price p : list) {
+            String k = GroceryText.amount(p.qty) == 1 ? p.qty : "";
+            if (!byUnit.containsKey(k)) byUnit.put(k, new ArrayList<Store.Price>());
+            byUnit.get(k).add(p);
+            if (common == null || byUnit.get(k).size() > byUnit.get(common).size()) common = k;
+        }
+        List<Store.Price> same = byUnit.get(common);
+        List<Long> cents = new ArrayList<Long>();
+        Store.Price cheapest = same.get(0);
+        for (Store.Price p : same) {
+            cents.add(p.cents);
+            if (p.cents < cheapest.cents) cheapest = p;
+        }
+        Collections.sort(cents);
+        long median = cents.get(cents.size() / 2);
+        String per = common.isEmpty() ? "" : " / " + unitLabel(GroceryText.unit(common));
+        return "usually " + TripsScreen.money(median, "€") + per
+                + (cents.size() > 1 ? " · " + TripsScreen.money(cents.get(0), "€") + "–" + TripsScreen.money(cents.get(cents.size() - 1), "€") : "")
+                + (shop(cheapest.shop) != null ? " · cheapest at " + shopName(cheapest.shop) : "")
+                + " · " + list.size() + (list.size() == 1 ? " price" : " prices");
     }
 
     private void buildListChips() {
@@ -362,7 +541,8 @@ class GroceryScreen extends Screen {
         for (final Store.GList l : lists) {
             int count = 0;
             for (Db.Item it : db.items()) if (it.list == l.id) count++;
-            TextView c = Util.chip(a, l.name + (count > 0 ? "  " + count : ""), Util.color(a, R.color.primary), l.id == selList);
+            TextView c = Util.chip(a, l.name + (count > 0 ? " (" + count + (count == 1 ? " item)" : " items)") : ""),
+                    Util.color(a, R.color.primary), l.id == selList);
             c.setOnClickListener(new View.OnClickListener() {
                 public void onClick(View v) {
                     selList = l.id;
@@ -469,31 +649,73 @@ class GroceryScreen extends Screen {
         return t;
     }
 
-    /** Tap a row to mark it bought; long-press to edit, see prices or delete. */
+    /**
+     * Tap a row to mark it bought; long-press to edit, see prices or delete. Below the name: − quantity + and
+     * the unit (tap to pick another); on the right ❗ marks it as needed right away.
+     */
     private View itemRow(final Db.Item it) {
         LinearLayout row = new LinearLayout(a);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setBackgroundResource(R.drawable.card_bg);
-        row.setMinimumHeight(Util.dp(a, 52));
-        row.setPadding(Util.dp(a, 16), Util.dp(a, 6), Util.dp(a, 14), Util.dp(a, 6));
+        row.setMinimumHeight(Util.dp(a, 56));
+        row.setPadding(Util.dp(a, 16), Util.dp(a, 6), Util.dp(a, 6), Util.dp(a, 6));
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
         lp.topMargin = Util.dp(a, 6);
         row.setLayoutParams(lp);
 
-        TextView circle = text("○", 22, R.color.prio_none);
+        TextView circle = text("○", 22, it.urgent ? R.color.overdue : R.color.prio_none);
         circle.setPadding(0, 0, Util.dp(a, 14), 0);
         row.addView(circle);
         LinearLayout col = new LinearLayout(a);
         col.setOrientation(LinearLayout.VERTICAL);
-        TextView name = text((it.qty.isEmpty() ? "" : it.qty + " × ") + it.name, 16, R.color.text);
+        TextView name = text(it.name, 16, R.color.text);
+        if (it.urgent) name.setTypeface(name.getTypeface(), android.graphics.Typeface.BOLD);
         col.addView(name);
+
+        LinearLayout qtyRow = new LinearLayout(a);
+        qtyRow.setOrientation(LinearLayout.HORIZONTAL);
+        qtyRow.setGravity(Gravity.CENTER_VERTICAL);
+        final String qty = it.qty.isEmpty() ? GroceryText.defaultQty(it.name) : it.qty;
+        qtyRow.addView(stepButton("−", new View.OnClickListener() {
+            public void onClick(View v) { setQty(it, GroceryText.stepQty(qty, -1)); }
+        }));
+        TextView amount = text(GroceryText.formatQty(GroceryText.amount(qty), ""), 15, R.color.text);
+        amount.setPadding(Util.dp(a, 6), 0, Util.dp(a, 6), 0);
+        qtyRow.addView(amount);
+        qtyRow.addView(stepButton("+", new View.OnClickListener() {
+            public void onClick(View v) { setQty(it, GroceryText.stepQty(qty, 1)); }
+        }));
+        String u = GroceryText.unit(qty);
+        TextView unit = text((u.isEmpty() ? "pcs" : u) + " ▾", 14, R.color.primary_text);
+        unit.setPadding(Util.dp(a, 10), Util.dp(a, 6), Util.dp(a, 10), Util.dp(a, 6));
+        unit.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                new AlertDialog.Builder(a).setTitle("Unit for " + it.name).setItems(GroceryText.UNITS, new DialogInterface.OnClickListener() {
+                    public void onClick(DialogInterface d, int which) { setQty(it, GroceryText.withUnit(qty, GroceryText.UNITS[which])); }
+                }).show();
+            }
+        });
+        qtyRow.addView(unit);
+        col.addView(qtyRow);
         String pl = priceLine(it.name);
         if (!pl.isEmpty()) col.addView(text(pl, 12, R.color.muted));
         row.addView(col, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
-        TextView aisle = text(aisle(it), 11, R.color.muted);
-        row.addView(aisle);
+
+        TextView flag = text(it.urgent ? "❗" : "!", 20, it.urgent ? R.color.overdue : R.color.prio_none);
+        flag.setGravity(Gravity.CENTER);
+        flag.setMinWidth(Util.dp(a, 44));
+        flag.setMinHeight(Util.dp(a, 44));
+        flag.setContentDescription(it.urgent ? "Urgent — tap to unmark" : "Mark as urgent");
+        flag.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                db.setItemUrgent(it.id, !it.urgent);
+                Toast.makeText(a, it.urgent ? it.name + ": not urgent" : "❗ " + it.name + " is needed right away", Toast.LENGTH_SHORT).show();
+                reload();
+            }
+        });
+        row.addView(flag);
 
         row.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) { tick(it); }
@@ -507,15 +729,47 @@ class GroceryScreen extends Screen {
         return row;
     }
 
+    private TextView stepButton(String label, View.OnClickListener click) {
+        TextView b = text(label, 18, R.color.primary_text);
+        b.setGravity(Gravity.CENTER);
+        b.setMinWidth(Util.dp(a, 36));
+        b.setMinHeight(Util.dp(a, 32));
+        android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+        bg.setCornerRadius(Util.dp(a, 16));
+        bg.setStroke(Util.dp(a, 1), Util.color(a, R.color.divider));
+        b.setBackground(bg);
+        b.setOnClickListener(click);
+        return b;
+    }
+
+    private void setQty(Db.Item it, String qty) {
+        db.setItemQty(it, qty);
+        reload();
+    }
+
     private void editItem(final Db.Item it) {
         LinearLayout box = Util.dialogBox(a);
         box.addView(Util.label(a, "Item"));
         final EditText field = Util.field(a, it.name);
         box.addView(field);
         box.addView(Util.label(a, "Quantity"));
-        final EditText qty = Util.field(a, it.qty);
-        qty.setHint("e.g. 2, 500 g, 1 pack");
-        box.addView(qty);
+        LinearLayout qtyBox = new LinearLayout(a);
+        qtyBox.setOrientation(LinearLayout.HORIZONTAL);
+        final EditText qty = Util.field(a, GroceryText.formatQty(GroceryText.amount(it.qty), ""));
+        qty.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL);
+        qty.setKeyListener(android.text.method.DigitsKeyListener.getInstance("0123456789.,"));
+        qty.setHint("e.g. 2");
+        qtyBox.addView(qty, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+        final Spinner unitSpinner = new Spinner(a);
+        unitSpinner.setAdapter(new ArrayAdapter<String>(a, android.R.layout.simple_spinner_dropdown_item, GroceryText.UNITS));
+        String curUnit = GroceryText.unit(it.qty.isEmpty() ? GroceryText.defaultQty(it.name) : it.qty);
+        unitSpinner.setSelection(Math.max(0, java.util.Arrays.asList(GroceryText.UNITS).indexOf(curUnit)));
+        qtyBox.addView(unitSpinner, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+        box.addView(qtyBox);
+        final android.widget.CheckBox urgent = new android.widget.CheckBox(a);
+        urgent.setText("❗ Urgent — needed right away");
+        urgent.setChecked(it.urgent);
+        box.addView(urgent);
         box.addView(Util.label(a, "Shop"));
         final List<Long> ids = new ArrayList<Long>();
         List<String> names = new ArrayList<String>();
@@ -555,7 +809,9 @@ class GroceryScreen extends Screen {
                     public void onClick(DialogInterface d, int which) {
                         String n = field.getText().toString().trim();
                         if (!n.isEmpty()) it.name = n;
-                        it.qty = qty.getText().toString().trim();
+                        double amountN = TripsScreen.parseAmount(qty.getText().toString()) / 100.0;
+                        it.qty = GroceryText.formatQty(amountN, GroceryText.UNITS[unitSpinner.getSelectedItemPosition()]);
+                        it.urgent = urgent.isChecked();
                         it.shop = ids.get(spinner.getSelectedItemPosition());
                         it.aisle = GroceryText.AISLES[aisle.getSelectedItemPosition()];
                         it.list = lists.get(listSpinner.getSelectedItemPosition()).id;
@@ -636,12 +892,13 @@ class GroceryScreen extends Screen {
 
     @Override
     void onCreateMenu(Menu menu) {
-        menu.add(0, MENU_SHARE, 0, "Share list (WhatsApp…)");
-        menu.add(0, MENU_IMPORT, 1, "Add items from a shared list");
-        menu.add(0, MENU_ASK_PRICE, 2, "Ask for price when ticking off").setCheckable(true);
-        menu.add(0, MENU_RENAME_LIST, 3, "Rename this list");
-        menu.add(0, MENU_DELETE_LIST, 4, "Delete this list");
-        menu.add(0, MENU_CLEAR, 5, "Clear this list");
+        menu.add(0, MENU_PRICES, 0, "Prices & price history");
+        menu.add(0, MENU_SHARE, 1, "Share list (WhatsApp, Messages…)");
+        menu.add(0, MENU_IMPORT, 2, "Add items from a shared list");
+        menu.add(0, MENU_ASK_PRICE, 3, "Ask for the price when ticking off").setCheckable(true);
+        menu.add(0, MENU_RENAME_LIST, 4, "Rename this list");
+        menu.add(0, MENU_CLEAR, 5, "Remove all items from this list");
+        menu.add(0, MENU_DELETE_LIST, 6, "Delete this list");
     }
 
     @Override
@@ -653,6 +910,9 @@ class GroceryScreen extends Screen {
     @Override
     boolean onMenu(int id) {
         switch (id) {
+            case MENU_PRICES:
+                priceOverview();
+                return true;
             case MENU_SHARE:
                 a.shareText(listName(), shareText());
                 return true;
